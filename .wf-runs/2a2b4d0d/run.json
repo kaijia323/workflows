@@ -1,0 +1,45 @@
+{
+  "runId": "2a2b4d0d",
+  "sessionId": "7c7c35fe-6c2c-4cc0-9699-06b2645edfee",
+  "status": "done",
+  "gate": {
+    "pending": false,
+    "planFile": ".wf-runs\\2a2b4d0d\\02-plan-1.md"
+  },
+  "createdAt": 1785782078208,
+  "updatedAt": 1785782870402,
+  "agents": [
+    {
+      "callId": "call_00_75czhGIRohb27iDtax9u8665",
+      "agent": "explorer",
+      "summary": "调研完成,报告已写入 `.wf-runs/2a2b4d0d/01-exploration-1.md`。摘要如下:\n\n## 摘要\n\n**现状(文档 vs 代码)**\n- 文档 §5.1:run = 「会话内一次需求处理」;进行中(status≠done)归并,否则新建;**回合结束置 done 即释放**(`handle.run=null`),仅 awaiting_approval 跨回合归并。文档隐含「任务=一个回合」的假设。\n- 代码:fd6057f 方案 A 落地了这一语义——`prompt()` finally 中无闸门回合一律 `status='done'`+释放,`getRunSnapshot` 配 done 回填防护。\n\n**任务拆分根因链路(707736e6 → 1c0fdcc1 实证)**\n1. 回合 1:orchestrator 调 explorer 后**回合结束但未调 wait_for_approval**(模型中途停止)→ finally 置 done、`handle.run=null`;\n2. 回合 2:「继续制定计划」→ planner → `ensureRun` 经 `resolveCurrentRun` 扫磁盘发现 707736e6 已 done → `createRun` 新建 1c0fdcc1;\n3. planner 计划跨 run 引用 707736e6 的探索报告,产物/DAG 分家。\n即:任务只要跨任何「非闸门」回合边界就被拆。补充发现:orchestrator 实际可在一个 prompt 连调多子代理(实测 JSONL),也可能 explorer 后即停——回合数由模型临场决定,「回合=任务」不成立。\n\n**方案对比**\n- **a(回合结束不释放+新任务信号)**:单独不成立——「非闸门批准的用户消息」信号无法区分「继续」与「新任务」(explorer 后的『继续制定计划』正是非闸门消息),仍需任务完成判定。\n- **b(当前行为)**:文档自洽但继续拆任务,否决。\n- **c1(推荐)**:新增 `complete_task` 工具 + finally 三分支——闸门→awaiting_approval;complete_task/纯文本交付回合→done+释放;**调过子代理但无闸门无 complete_task(中途停止)→保持 executing、不释放**,下条消息自然归并同一 runId。`ensureRun`/`resolveCurrentRun`/run.json schema 零改动,getRunSnapshot done 防护保留(防过度归并复发)。\n- c2(前端 taskId 贯穿)/c3(启发式文本判定):代价高/判定脆,备选。\n\n**改动清单**:`piService.ts`(SessionHandle 加 `turnCompleteCalled`/`turnSubAgentCalled` 两标志、prompt finally 重写、新增 `createCompleteTaskTool`、openSession 挂载)、`orchestrator.md` 契约、`docs/dag-workflow.md` §5.1 措辞(「回合释放」→「任务完成释放」)、补单测;崩溃中断回合不再误置 done,与文档 §8 续跑语义也更一致。",
+      "artifact": ".wf-runs\\2a2b4d0d\\01-exploration-1.md",
+      "sessionFile": "sessions\\857395d8-e02b-4b8c-9b07-5144bbf849cd\\sub\\2a2b4d0d\\2026-08-03T18-34-38-212Z_019fc8e8-0b04-73dc-9f65-071d6c1322ee.jsonl",
+      "ts": 1785782336321
+    },
+    {
+      "callId": "call_00_qzwnqgNDTH3vW7Eb9VFm6575",
+      "agent": "planner",
+      "summary": "实施计划已写入 `.wf-runs/2a2b4d0d/02-plan-1.md`。摘要如下:\n\n**方案 c1 落地要点(修复 fd6057f 副作用:同任务跨非闸门回合被拆成多个 runId)**\n\n1. **改动文件(5 个)**\n   - `piService.ts`:SessionHandle 加 `turnCompleteCalled`/`turnSubAgentCalled` 两标志;`prompt()` finally 改三分支 + 失败防护(`turnFailed` → keep);`createSubAgentTool` 入口置子代理标志;新增 `createCompleteTaskTool`(与 `wait_for_approval` 对称:参数 `{summary}`、execute 置 done + saveRun + 崩溃安全落盘,不发新 SSE 事件);`openSession` 挂载\n   - `runManager.ts`:仅新增导出纯函数 `decideTurnEnd`(决策单一事实源,便于单测);`ensureRun`/`resolveCurrentRun` **零改动**;`getRunSnapshot` done 防护**保留**\n   - `orchestrator.md`:补 complete_task 契约(交付完成必须调用;未调闸门/完成工具的回合不结束任务;勿中途纯文本结束回合)\n   - `docs/dag-workflow.md`:§5.1「回合释放」→「任务完成释放」、§7 补 complete_task、§12 决策记录\n   - 新增 `runManager.test.ts`\n\n2. **三分支状态迁移**:闸门→awaiting_approval(不释放归并);complete_task 或纯文本回合→done+释放;调过子代理无闸门无完成(中途停止)→保持 executing 不释放不写盘。边缘:失败/abort 回合一律 keep(避免 API 失败被纯文本分支误判 done);闸门优先于 complete_task。\n\n3. **测试**:decideTurnEnd 矩阵 7 例 + 生命周期集成 5 例(中途停止不释放、complete_task 释放、闸门归并、纯文本释放、失败防护);现有测试零影响。\n\n4. **验证**:`pnpm --filter @workflows/api test/typecheck/lint/build`;手动 E2E 场景 A(同任务跨多回合单 runId,复现反例 707736e6/1c0fdcc1)、B(新任务新 runId)、C(闸门归并回归)、D(abort 不释放)。\n\n5. **风险**:回滚=单 commit revert(无 schema 迁移);旧 done run 不受影响、bug 窗口 run 不可回溯但产物不丢;模型忘调 complete_task 由纯文本兜底;误判方向均可恢复(NN-role-N 命名保证不覆盖)。",
+      "artifact": ".wf-runs\\2a2b4d0d\\02-plan-1.md",
+      "sessionFile": "sessions\\857395d8-e02b-4b8c-9b07-5144bbf849cd\\sub\\2a2b4d0d\\2026-08-03T18-39-07-469Z_019fc8ec-26cd-7a46-971e-75930ef304e5.jsonl",
+      "ts": 1785782515286
+    },
+    {
+      "callId": "call_00_337Ba21IN9Or4nW2TKUO2753",
+      "agent": "executor",
+      "summary": "执行完成,摘要如下:\n\n**改动文件(严格按计划的 5 个文件)**\n\n1. **apps/api/src/pi/runManager.ts**(+22 行,纯新增):文件尾部新增导出 `TurnEndDecision` + 纯函数 `decideTurnEnd`(失败→keep;闸门→awaiting_approval;完成/纯文本→done;中途停止→keep);`ensureRun`/`resolveCurrentRun`/`createRun`/`saveRun`/`toSnapshot` 零改动。\n2. **apps/api/src/pi/piService.ts**(+84/-12):SessionHandle 加 `turnCompleteCalled`/`turnSubAgentCalled`;openSession 初始化并在 wait_for_approval 后挂载 `complete_task`;createSubAgentTool 入口置子代理标志(try 外,失败也计数);新增 `createCompleteTaskTool`(与闸门对称:置 done + gate.pending=false + saveRun 崩溃安全落盘、不发新 SSE 事件);prompt() 回合开始重置 3 标志、catch 置 `turnFailed`、finally 三分支全部收敛到 `decideTurnEnd`(awaiting_approval 不释放 / done 释放 / keep 不写盘不释放);`getRunSnapshot` done 防护原样保留。\n3. **apps/api/src/pi/agents/orchestrator.md**(+4):工具列表补 complete_task;调度策略规则 6(交付完成必须调 complete_task,未调闸门/完成工具的回合不结束任务)+ 规则 7 与约束区(勿中途纯文本结束回合)。\n4. **docs/dag-workflow.md**(+5/-1):§5.1 改「任务完成释放」、§7 补 complete_task 说明、§12 追加决策记录。\n5. **apps/api/src/pi/runManager.test.ts**(新增):decideTurnEnd 矩阵 7 例 + run 生命周期集成 5 例(中途停止不释放、complete_task 释放、闸门归并、纯文本释放、失败防护不写盘)。\n\n**自检结果**:`test` 115/115 全过(8 文件,含新增 12 例,既有零回归);`typecheck` / `lint` / `build` 全绿(lint 修复一处未用参数 `_params`);build 产物 dist orchestrator.md 含新契约;git 范围仅计划内 5 文件。\n\n**未完成**:手动 E2E(需 DeepSeek API key)未执行,核心反例路径已由集成测试覆盖;未提交 commit。详细报告已写入 `.wf-runs/2a2b4d0d/03-execution-1.md`。",
+      "artifact": ".wf-runs\\2a2b4d0d\\03-execution-1.md",
+      "sessionFile": "sessions\\857395d8-e02b-4b8c-9b07-5144bbf849cd\\sub\\2a2b4d0d\\2026-08-03T18-42-41-346Z_019fc8ef-6a42-7d1b-a959-a1fdb7ba3771.jsonl",
+      "ts": 1785782713341
+    },
+    {
+      "callId": "call_00_RiJgQHqRIfiFOcnWeJWL4816",
+      "agent": "reviewer",
+      "summary": "审查完成,结论:**pass**。报告已写入 `.wf-runs/2a2b4d0d/04-review-1.md`。\n\n摘要:\n- **5 个计划文件全部核对通过**:`decideTurnEnd` 纯函数与计划逐字一致;`prompt()` finally 三分支与状态迁移表完全吻合(失败/abort→keep 不写盘不释放、闸门优先、纯文本→done+释放、**中途停止→keep 不释放**——核心修复正确);complete_task 与 wait_for_approval 对称、立即落盘崩溃安全、不发新 SSE 事件;getRunSnapshot done 防护与 ensureRun/resolveCurrentRun/createRun/saveRun/toSnapshot 零改动;挂载时序安全(先调 complete_task 再调闸门时闸门胜出)。\n- **测试覆盖完整**:矩阵 7 例 + 集成 5 例全部落地,核心反例(707736e6→1c0fdcc1)由集成用例 1 以真实磁盘状态覆盖(keep 后同 runId 归并,agents=[explorer, planner])。\n- **无越界改动**:全仓 grep 确认新符号仅出现在计划 5 文件 + 本任务产物。\n- **自动化**:无 shell,以执行报告声明为准(test 115 全绿 / typecheck / lint / build 全过)。\n- 仅 4 项低优先级观察(complete_task 后进程内错误路径的归并边缘、done 分支 planFile 残留、矩阵一组合未测、commit/E2E 未执行),均不阻塞。",
+      "artifact": ".wf-runs\\2a2b4d0d\\04-review-1.md",
+      "sessionFile": "sessions\\857395d8-e02b-4b8c-9b07-5144bbf849cd\\sub\\2a2b4d0d\\2026-08-03T18-45-18-722Z_019fc8f1-d102-7e3a-9797-4a7ef4571aaf.jsonl",
+      "ts": 1785782866158
+    }
+  ]
+}
