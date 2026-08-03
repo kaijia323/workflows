@@ -1,13 +1,13 @@
 {
   "runId": "4a6bb996",
   "sessionId": "4ad12a92-ca51-4914-bdc6-5d41d1fcbaca",
-  "status": "executing",
+  "status": "done",
   "gate": {
     "pending": false,
-    "planFile": ".wf-runs\\4a6bb996\\02-plan-1.md"
+    "planFile": null
   },
   "createdAt": 1785783168182,
-  "updatedAt": 1785783583028,
+  "updatedAt": 1785784001719,
   "agents": [
     {
       "callId": "call_00_ujQa3tRxewPQGzt6EGKD9659",
@@ -24,6 +24,22 @@
       "artifact": ".wf-runs\\4a6bb996\\02-plan-1.md",
       "sessionFile": "sessions\\857395d8-e02b-4b8c-9b07-5144bbf849cd\\sub\\4a6bb996\\2026-08-03T18-55-20-307Z_019fc8fa-fef3-72d3-af3a-aaa36d10c09c.jsonl",
       "ts": 1785783548249
+    },
+    {
+      "callId": "call_00_cIkNatlqXEPh5YFUbmNv7239",
+      "agent": "executor",
+      "summary": "执行完成。摘要:\n\n**提交**: `c1cba88`(main,工作树干净)\n\n**改动文件**(8 个):\n- `.gitignore` — 删除 `.wf-runs/*/run.json` 规则及注释(A1)\n- `piService.ts` — B1 ensureRun 内存捷径加 `status !== 'done'` 检查;B2 子代理翻转仅剩 awaiting_approval;B3 finally done 分支仅首次进入 done 时写盘(顺带 planFile 清理);B4 complete_task saveRun 后立即 `handle.run = null`\n- `runManager.ts` — B5 saveRun 熔断(内存 done && 磁盘 done → 跳过写盘,首次 done 写盘保留);B6 头注释同步冻结语义\n- `docs/dag-workflow.md` — §5.1/§7/§8 同步 done 冻结语义(B6)\n- `runManager.test.ts` — 新增 3 个 done 冻结单测\n\n**git 恢复**:3 个被 rm --cached 的 run.json 恢复跟踪(内容一致无 diff);.wf-runs 全量进 git(5 个 runId 的 run.json 全部在跟踪);`git check-ignore` 退出码 1;提交后 `git status` 干净。\n\n**测试结果**:api 全部 118 例通过(runManager 12 旧 + 3 新);typecheck(全仓 turbo 3 包)、lint、build 全绿(husky pre-commit 同款门禁通过)。\n\n**端到端验收**:脚本验证 done 后 run.json 的 mtime/内容(逐字节)/updatedAt 全不变,gate/agents 不复活,resolveCurrentRun 排除 done;闸门续跑(非 done)归并不受影响;piService 层 ensureRun 对 done run 新建、对 awaiting_approval 归并均验证通过。真实 LLM 全流程(计划 §7.3)需新开会话+交互式批准,超出本回合范围,已用等价验收覆盖。\n\n报告已写入 `.wf-runs/4a6bb996/03-execution-1.md`(提交后新增,未跟踪,随下一轮提交)。",
+      "artifact": ".wf-runs\\4a6bb996\\03-execution-1.md",
+      "sessionFile": "sessions\\857395d8-e02b-4b8c-9b07-5144bbf849cd\\sub\\4a6bb996\\2026-08-03T18-59-43-030Z_019fc8ff-0136-7898-906c-3742a887c118.jsonl",
+      "ts": 1785783777306
+    },
+    {
+      "callId": "call_00_LURNXz9fwVRUCt6gerHD6276",
+      "agent": "reviewer",
+      "summary": "审查完成,报告已写入 `.wf-runs/4a6bb996/04-review-1.md`。\n\n**结论:pass**\n\n摘要:\n- **A 部分 git 恢复**:通过。`.gitignore` 已无 `.wf-runs` 规则;3 个 run.json 恢复跟踪(时间线交叉验证自洽);5 个 runId 全量进 git;c1cba88 为 HEAD、message 匹配,提交时点工作树干净(当前工作树变动为本轮运行中预期状态)。\n- **B 部分 5 处改动**:B1-B5 逐行核对与计划一致(ensureRun done 检查、翻转仅剩 awaiting_approval、finally done 守卫、complete_task 释放、saveRun 熔断),B6 注释与 docs §5.1/§7/§8 在位。\n- **语义安全**:闸门、断点续跑、complete_task 崩溃安全落盘、首次 done 写盘全部保留;无内存/磁盘 done 不一致卡死路径;keep/awaiting_approval 分支无回归。\n- **测试**:3 个新单测为内容级双向断言(done 不写/非 done 正常写),无「只测 mtime」缺陷;15 例 runManager 用例结构完整(测试实跑依赖报告声明)。\n- **非阻断项**:① 真实 LLM 端到端(§7.3)未执行,以等价验收替代;② 可选 piService 测试未固化为单测;③ 审查环境无 shell,git diff 范围/test 未复跑,建议人工 `git show --stat c1cba88` + `git status` 快速复核。\n\n最终建议:通过。",
+      "artifact": ".wf-runs\\4a6bb996\\04-review-1.md",
+      "sessionFile": "sessions\\857395d8-e02b-4b8c-9b07-5144bbf849cd\\sub\\4a6bb996\\2026-08-03T19-03-03-118Z_019fc902-0ece-7840-99d3-683d8fbe8b58.jsonl",
+      "ts": 1785783988808
     }
   ]
 }
