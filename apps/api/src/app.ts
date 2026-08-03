@@ -1,8 +1,10 @@
 import { existsSync } from 'node:fs'
-import { readFile, stat } from 'node:fs/promises'
+import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { H3, HTTPError, serveStatic } from 'h3'
+import { Hono } from 'hono'
+import { serveStatic } from '@hono/node-server/serve-static'
+import { HTTPException } from 'hono/http-exception'
 import type { DagGraph, DagNode } from '@dag-pi/shared'
 import { createStore } from './config.js'
 import { registerAgentRoutes } from './agent/routes.js'
@@ -13,7 +15,7 @@ import { PiAgentService } from './pi/piService.js'
 const webDist = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../web/dist')
 const hasWebDist = existsSync(webDist)
 
-export const app = new H3()
+export const app = new Hono()
 
 /**
  * 初始化 pi agent 服务(创建 ModelRuntime 与 .dag-pi 存储,注册 agent 路由)。
@@ -25,31 +27,30 @@ export async function initAgentRoutes(): Promise<void> {
   registerAgentRoutes(app, store, pi)
 }
 
-// 统一错误响应:保持 ApiResponse<T> 结构,而不是 H3 默认错误格式
-app.use(async (event, next) => {
-  try {
-    return await next()
-  } catch (error) {
-    if (error instanceof HTTPError) {
-      return new Response(JSON.stringify({ code: error.status, message: error.message, data: null }), {
-        status: error.status,
-        headers: { 'content-type': 'application/json;charset=UTF-8' },
-      })
-    }
-    // 未知错误:交给 H3 默认错误处理(500)
-    throw error
+// 统一错误响应:保持 ApiResponse<T> 结构,而不是 Hono 默认错误格式
+app.onError((error, c) => {
+  if (error instanceof HTTPException) {
+    return c.json({ code: error.status, message: error.message, data: null }, error.status)
   }
+  // 未知错误:记录日志并返回统一 500
+  console.error('[api] unhandled error:', error)
+  return c.json({ code: 500, message: 'Internal Server Error', data: null }, 500)
 })
 
+// 统一 404 响应
+app.notFound((c) => c.json({ code: 404, message: 'Not Found', data: null }, 404))
+
 // 健康检查
-app.get('/api/health', () => ({
-  code: 0,
-  message: 'ok',
-  data: { status: 'up', timestamp: new Date().toISOString() },
-}))
+app.get('/api/health', (c) =>
+  c.json({
+    code: 0,
+    message: 'ok',
+    data: { status: 'up', timestamp: new Date().toISOString() },
+  }),
+)
 
 // 示例:返回一个 DAG 骨架数据
-app.get('/api/dag', () => {
+app.get('/api/dag', (c) => {
   const nodes: DagNode[] = [
     { id: 'node-1', label: '数据采集' },
     { id: 'node-2', label: '数据清洗' },
@@ -62,47 +63,20 @@ app.get('/api/dag', () => {
       { source: 'node-2', target: 'node-3' },
     ],
   }
-  return { code: 0, message: 'ok', data: graph }
+  return c.json({ code: 0, message: 'ok', data: graph })
 })
 
-// 兜底中间件:仅在路由未匹配时执行
-app.use(async (event) => {
-  // 已有路由匹配:直接放行
-  if (event.context.matchedRoute) {
-    return
-  }
+// 生产环境:托管前端构建产物(单端口对外,用户只访问这一个地址)
+if (hasWebDist) {
+  // 静态文件(自带 etag / 304 / HEAD 处理),未命中时继续到下一个中间件
+  app.use('*', serveStatic({ root: webDist }))
 
-  const pathname = event.url.pathname
-
-  // 未知 /api 路径:统一 JSON 404(由错误中间件转成统一格式)
-  if (pathname.startsWith('/api')) {
-    throw HTTPError.status(404, 'Not Found')
-  }
-
-  // 生产环境:托管前端构建产物(单端口对外,用户只访问这一个地址)
-  if (hasWebDist) {
-    // 静态文件(自带 etag / 304 / HEAD 处理)
-    const served = await serveStatic(event, {
-      fallthrough: true,
-      indexNames: ['/index.html'],
-      getContents: (id) => readFile(path.join(webDist, id)),
-      getMeta: async (id) => {
-        const stats = await stat(path.join(webDist, id)).catch(() => undefined)
-        if (stats?.isFile()) {
-          return { size: stats.size, mtime: stats.mtimeMs }
-        }
-      },
-    })
-    if (served !== undefined) {
-      return served
-    }
-
-    // SPA fallback:前端路由(如 /foo/bar)一律返回 index.html
+  // SPA fallback:非 /api 路径一律返回 index.html(前端路由),由前端接管
+  app.use('*', async (c, next) => {
+    if (c.req.path.startsWith('/api')) return next()
     const indexHtml = await readFile(path.join(webDist, 'index.html'))
     return new Response(indexHtml, {
       headers: { 'content-type': 'text/html;charset=UTF-8' },
     })
-  }
-
-  throw HTTPError.status(404, 'Not Found')
-})
+  })
+}
