@@ -9,8 +9,19 @@ import type { HistoryBlock, HistoryItem } from '@workflows/shared'
 
 export function renderHistory(session: AgentSession): HistoryItem[] {
   const items: HistoryItem[] = []
-  // toolResult 消息单独成条,按 toolCallId 挂到对应工具块上
+  // toolResult 消息单独成条,按 toolCallId 挂到对应工具块上。
+  // 消息顺序恒为 assistant(含 toolCall) → toolResult,单遍扫描会在渲染
+  // assistant 时尚未写入输出,故先两遍扫描:第一遍收集全部 toolResult,
+  // 第二遍再渲染,保证 toolCall 能关联到其输出(同 toolCallId 多条取最后一条)。
   const lastToolOutput = new Map<string, { output?: string; isError?: boolean }>()
+  for (const message of session.messages) {
+    if (message.role === 'toolResult') {
+      lastToolOutput.set(message.toolCallId, {
+        output: extractText(message.content),
+        isError: message.isError,
+      })
+    }
+  }
 
   for (const message of session.messages) {
     if (message.role === 'user') {
@@ -37,11 +48,6 @@ export function renderHistory(session: AgentSession): HistoryItem[] {
           cost: message.usage?.cost.total ?? 0,
         },
         model: message.model,
-      })
-    } else if (message.role === 'toolResult') {
-      lastToolOutput.set(message.toolCallId, {
-        output: extractText(message.content),
-        isError: message.isError,
       })
     }
   }
