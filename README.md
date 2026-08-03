@@ -7,7 +7,7 @@ Turborepo monorepo — DAG 可视化与流水线管理平台(骨架)。
 | 包 | 技术 |
 | --- | --- |
 | `apps/web` | Vue 3 + TypeScript + Vite + Tailwind CSS v4 |
-| `apps/api` | Express 5 + TypeScript |
+| `apps/api` | H3(Web 标准 HTTP 框架)+ TypeScript |
 | `packages/shared` | 跨端共享类型 |
 
 ## 端口策略(对外只暴露一个入口)
@@ -35,7 +35,7 @@ pnpm typecheck   # 类型检查
 ```
 dag-pi/
 ├── apps/
-│   ├── api/          # Express 5 API 服务(生产时托管 web/dist)
+│   ├── api/          # H3 API 服务(生产时托管 web/dist)
 │   └── web/          # Vue 3 前端(dev 15200 / 构建产物 dist)
 ├── packages/
 │   └── shared/       # 共享类型(构建产物供 api/web 消费)

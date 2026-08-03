@@ -1,28 +1,42 @@
 import { existsSync } from 'node:fs'
+import { readFile, stat } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import express from 'express'
+import { H3, HTTPError, serveStatic } from 'h3'
 import type { DagGraph, DagNode } from '@dag-pi/shared'
 
 // 前端构建产物目录(生产环境由本服务托管,前后端同源)
 // src/ 与 dist/ 下均能正确解析到 apps/web/dist
 const webDist = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../web/dist')
+const hasWebDist = existsSync(webDist)
 
-export const app = express()
+export const app = new H3()
 
-app.use(express.json())
-
-// 健康检查
-app.get('/api/health', (_req, res) => {
-  res.json({
-    code: 0,
-    message: 'ok',
-    data: { status: 'up', timestamp: new Date().toISOString() },
-  })
+// 统一错误响应:保持 ApiResponse<T> 结构,而不是 H3 默认错误格式
+app.use(async (event, next) => {
+  try {
+    return await next()
+  } catch (error) {
+    if (error instanceof HTTPError) {
+      return new Response(JSON.stringify({ code: error.status, message: error.message, data: null }), {
+        status: error.status,
+        headers: { 'content-type': 'application/json;charset=UTF-8' },
+      })
+    }
+    // 未知错误:交给 H3 默认错误处理(500)
+    throw error
+  }
 })
 
+// 健康检查
+app.get('/api/health', () => ({
+  code: 0,
+  message: 'ok',
+  data: { status: 'up', timestamp: new Date().toISOString() },
+}))
+
 // 示例:返回一个 DAG 骨架数据
-app.get('/api/dag', (_req, res) => {
+app.get('/api/dag', () => {
   const nodes: DagNode[] = [
     { id: 'node-1', label: '数据采集' },
     { id: 'node-2', label: '数据清洗' },
@@ -35,20 +49,47 @@ app.get('/api/dag', (_req, res) => {
       { source: 'node-2', target: 'node-3' },
     ],
   }
-  res.json({ code: 0, message: 'ok', data: graph })
+  return { code: 0, message: 'ok', data: graph }
 })
 
-// 未知 /api 路径:统一 JSON 404
-app.use('/api', (_req, res) => {
-  res.status(404).json({ code: 404, message: 'Not Found', data: null })
+// 兜底中间件:仅在路由未匹配时执行
+app.use(async (event) => {
+  // 已有路由匹配:直接放行
+  if (event.context.matchedRoute) {
+    return
+  }
+
+  const pathname = event.url.pathname
+
+  // 未知 /api 路径:统一 JSON 404(由错误中间件转成统一格式)
+  if (pathname.startsWith('/api')) {
+    throw HTTPError.status(404, 'Not Found')
+  }
+
+  // 生产环境:托管前端构建产物(单端口对外,用户只访问这一个地址)
+  if (hasWebDist) {
+    // 静态文件(自带 etag / 304 / HEAD 处理)
+    const served = await serveStatic(event, {
+      fallthrough: true,
+      indexNames: ['/index.html'],
+      getContents: (id) => readFile(path.join(webDist, id)),
+      getMeta: async (id) => {
+        const stats = await stat(path.join(webDist, id)).catch(() => undefined)
+        if (stats?.isFile()) {
+          return { size: stats.size, mtime: stats.mtimeMs }
+        }
+      },
+    })
+    if (served !== undefined) {
+      return served
+    }
+
+    // SPA fallback:前端路由(如 /foo/bar)一律返回 index.html
+    const indexHtml = await readFile(path.join(webDist, 'index.html'))
+    return new Response(indexHtml, {
+      headers: { 'content-type': 'text/html;charset=UTF-8' },
+    })
+  }
+
+  throw HTTPError.status(404, 'Not Found')
 })
-
-// 托管前端构建产物(存在时):单端口对外,用户只访问这一个地址
-if (existsSync(webDist)) {
-  app.use(express.static(webDist))
-
-  // SPA fallback:非 /api 请求一律返回 index.html(express 5 通配符语法)
-  app.get('/{*splat}', (_req, res) => {
-    res.sendFile(path.join(webDist, 'index.html'))
-  })
-}
