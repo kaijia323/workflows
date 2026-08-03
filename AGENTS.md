@@ -39,3 +39,4 @@ pnpm typecheck / lint / test
 - 改动 shared 类型后必须重建,否则 api/web 的 TS 检查会失败
 - 测试用 Vitest(api: `app.test.ts`;web: `App.test.ts`、`useAgent.test.ts`)
 - 会话事件映射在 `piService.ts` 的 `mapSessionEvent`,历史恢复在 `renderHistory`,两者需保持一致的输出顺序语义
+- **代理定义是 .md 文件,tsc 不复制**:`apps/api/scripts/copy-agents.mjs` 在 build 时把 `src/pi/agents/*.md` 复制到 `dist/pi/agents`;改动 `src/pi/agents/*.md` 后必须 `pnpm build` 生产才生效(dev 直接跑 src 不受影响)。`PiAgentService.create()` 启动时会校验 orchestrator 定义存在,缺失直接抛错——不要绕过这个检查

@@ -98,6 +98,16 @@ export class PiAgentService {
     const store = createStore()
     // 旧版平铺会话文件 → sessions/<workspaceId>/ 子目录迁移
     migrateSessionsLayout(store)
+    // 防御:代理定义缺失时启动即失败,避免生产环境静默降级为普通编码助手。
+    // tsc 不复制 .md,构建脚本(copy-agents.mjs)负责把 agents/*.md 复制到 dist/pi/agents;
+    // 一旦复制步骤失效,这里立即抛错,而不是让 orchestrator.md / 子代理工具静默消失。
+    const defs = getAgentDefinitions(store)
+    if (!defs.has('orchestrator')) {
+      throw new Error(
+        '未加载到主代理定义(orchestrator):请确认构建产物包含 agents/*.md(dist/pi/agents)。' +
+          '若从源码运行请检查 src/pi/agents 目录。',
+      )
+    }
     const runtime = await ModelRuntime.create({
       authPath: path.join(store.agentDir, 'auth.json'),
       modelsPath: path.join(store.agentDir, 'models.json'),
