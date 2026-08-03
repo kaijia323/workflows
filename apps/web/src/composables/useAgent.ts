@@ -1,4 +1,4 @@
-import { computed, ref } from 'vue'
+import { computed, reactive, ref } from 'vue'
 import type { AgentConfig, SessionEvent, SessionStatus, Workspace } from '@dag-pi/shared'
 
 export interface UiToolRun {
@@ -176,7 +176,10 @@ export function useAgent() {
 
   function ensurePending(): UiMessage {
     if (!pending) {
-      pending = {
+      // 必须用 reactive 包装:pending 变量持有的是代理引用,
+      // 后续 text_delta / thinking_delta / tool 增量修改才能触发 UI 实时更新
+      // (若 push 原始对象,只有数组内的副本被代理,外部引用的修改不触发响应式)
+      pending = reactive<UiMessage>({
         id: `a${Date.now()}`,
         role: 'assistant',
         text: '',
@@ -184,7 +187,7 @@ export function useAgent() {
         thinkingOpen: false,
         tools: [],
         status: 'streaming',
-      }
+      })
       messages.value.push(pending)
     }
     return pending
