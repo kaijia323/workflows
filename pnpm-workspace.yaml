@@ -1,0 +1,7 @@
+packages:
+  - "apps/*"
+  - "packages/*"
+
+# pnpm 10 默认拦截依赖的构建脚本,此处显式放行
+onlyBuiltDependencies:
+  - esbuild
