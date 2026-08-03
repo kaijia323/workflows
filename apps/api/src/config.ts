@@ -31,6 +31,8 @@ export interface WorkflowsStore {
   root: string
   /** agent 隔离目录(auth/models/settings/sessions 均在此,不触碰 ~/.pi/agent) */
   agentDir: string
+  /** 用户自定义代理目录(同名覆盖内置 agents) */
+  agentsDir: string
   configPath: string
   workspacesPath: string
   sessionsPath: string
@@ -45,9 +47,12 @@ export function createStore(): WorkflowsStore {
   ensureDir(root)
   const agentDir = path.join(root, 'agent')
   ensureDir(agentDir)
+  const agentsDir = path.join(root, 'agents')
+  ensureDir(agentsDir)
   return {
     root,
     agentDir,
+    agentsDir,
     configPath: path.join(root, 'config.json'),
     workspacesPath: path.join(root, 'workspaces.json'),
     sessionsPath: path.join(root, 'workspace-sessions.json'),

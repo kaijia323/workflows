@@ -2,10 +2,15 @@
 import { computed } from 'vue'
 import type { AgentStore } from '../composables/useAgent'
 import { toolLabel } from '../composables/useAgent'
+import DagPanel from './DagPanel.vue'
 
 const props = defineProps<{
   agent: AgentStore
   meta: { workflowsRoot: string; environment: string } | null
+}>()
+
+const emit = defineEmits<{
+  openSub: [callId: string, agentName: string]
 }>()
 
 const ws = computed(() => props.agent.activeWorkspace.value)
@@ -27,11 +32,16 @@ function fmt(n: number | undefined): string {
 
 <template>
   <aside class="flex w-72 shrink-0 flex-col border-l border-edge bg-panel/40">
-    <div class="px-4 pb-2 pt-3.5">
-      <span class="font-display text-[10px] font-semibold tracking-[0.2em] text-faint">观测 · OBSERVE</span>
-    </div>
+    <!-- 上方:工作流 DAG 图 -->
+    <DagPanel
+      :agent="agent"
+      @open="emit('openSub', $event[0], $event[1])"
+    />
 
     <div class="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 pb-4">
+      <div class="pt-3">
+        <span class="font-display text-[10px] font-semibold tracking-[0.2em] text-faint">观测 · OBSERVE</span>
+      </div>
       <!-- 工作区 -->
       <section>
         <h3 class="section-label">

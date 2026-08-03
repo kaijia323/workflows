@@ -180,6 +180,25 @@ export function registerAgentRoutes(app: Hono, store: WorkflowsStore, pi: PiAgen
     await pi.abort(id)
     return c.json({ code: 0, message: '已中止', data: null })
   })
+
+  /* ---------------- 工作流 run ---------------- */
+
+  // 当前(或最近)run 快照:前端 / 断连恢复重建 DAG 图与闸门状态
+  app.get('/api/agent/workspaces/:id/run', (c) => {
+    const workspace = requireWorkspace(store, c.req.param('id'))
+    const sessionId = getActiveSession(store, workspace.id)?.id ?? null
+    if (!sessionId) return c.json({ code: 0, message: 'ok', data: null })
+    return c.json({ code: 0, message: 'ok', data: pi.getRunSnapshot(workspace, sessionId) })
+  })
+
+  // 子代理调用历史(模态窗回看):从 sub JSONL 恢复渲染
+  app.get('/api/agent/workspaces/:id/run/agents/:callId', async (c) => {
+    const workspace = requireWorkspace(store, c.req.param('id'))
+    const sessionId = getActiveSession(store, workspace.id)?.id ?? null
+    if (!sessionId) throw new HTTPException(404, { message: '会话不存在' })
+    const history = await pi.getSubAgentHistory(workspace, sessionId, c.req.param('callId'))
+    return c.json({ code: 0, message: 'ok', data: history })
+  })
 }
 
 /** 读取 JSON body,空 body / 非法 JSON 时返回空对象(兼容 h3 readBody 的宽松行为) */

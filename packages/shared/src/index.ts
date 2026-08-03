@@ -5,6 +5,8 @@ export interface DagNode {
   id: string
   label: string
   description?: string
+  /** 工作流运行状态(前端 DAG 图渲染用) */
+  status?: 'idle' | 'running' | 'done' | 'error'
 }
 
 /**
@@ -151,6 +153,18 @@ export interface HistoryItem {
 }
 
 /**
+ * 子代理内部会话事件镜像(挂载在主代理工具调用的 callId 下)。
+ * 与主会话事件同构,前端按 callId 归入子代理模态窗数据容器。
+ */
+export type SubAgentEvent =
+  | { type: 'sub_message_start'; callId: string; role: 'user' | 'assistant'; id: string; text?: string }
+  | { type: 'sub_text_delta'; callId: string; delta: string }
+  | { type: 'sub_thinking_delta'; callId: string; delta: string }
+  | { type: 'sub_tool_start'; callId: string; toolCallId: string; toolName: string }
+  | { type: 'sub_tool_update'; callId: string; toolCallId: string; delta: string }
+  | { type: 'sub_tool_end'; callId: string; toolCallId: string; toolName: string; isError: boolean; output: string }
+
+/**
  * 会话事件(SSE 流)
  */
 export type SessionEvent =
@@ -164,3 +178,40 @@ export type SessionEvent =
   | { type: 'agent_end'; usage: SessionStatus['usage'] }
   | { type: 'error'; message: string }
   | { type: 'done' }
+  // 子代理编排:sub_* 事件挂载在主代理工具调用的 callId 下
+  | SubAgentEvent
+  // 子代理结束(主代理工具调用收尾前的镜像)
+  | { type: 'sub_end'; callId: string; agentName: string; summary: string; artifact: string | null }
+  // 闸门请求:planner 产出计划后等待用户批准/驳回
+  | { type: 'gate_required'; runId: string; planFile: string | null; summary: string }
+
+/* ---------------- 工作流 run ---------------- */
+
+/** run 状态机 */
+export type RunStatus = 'planning' | 'awaiting_approval' | 'executing' | 'reviewing' | 'done'
+
+/** run 中一次子代理调用记录 */
+export interface RunAgentCall {
+  callId: string
+  /** 子代理名(explorer / planner / executor / reviewer …) */
+  agent: string
+  /** 子代理最终输出摘要 */
+  summary: string
+  /** 产物文件(相对工作区根,如 .wf-runs/r1/01-exploration.md);无则 null */
+  artifact: string | null
+  /** 子代理会话文件(相对 .workflows,供模态窗历史回看) */
+  sessionFile: string | null
+  ts: number
+}
+
+/** run 快照(恢复 / 断连重建 UI 用) */
+export interface RunSnapshot {
+  runId: string
+  sessionId: string
+  status: RunStatus
+  gate: { pending: boolean; planFile: string | null }
+  /** 产物文件列表(相对工作区根) */
+  artifacts: Array<{ name: string; path: string }>
+  /** 本 run 已完成的子代理调用(按时间序) */
+  agents: RunAgentCall[]
+}

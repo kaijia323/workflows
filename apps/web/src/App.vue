@@ -7,11 +7,14 @@ import ChatPane from './components/ChatPane.vue'
 import InfoPanel from './components/InfoPanel.vue'
 import ApiKeyModal from './components/ApiKeyModal.vue'
 import WorkspacePickerModal from './components/WorkspacePickerModal.vue'
+import SubAgentModal from './components/SubAgentModal.vue'
 
 const agent = useAgent()
 const showSettings = ref(false)
 const showPicker = ref(false)
 const meta = ref<{ workflowsRoot: string; environment: string } | null>(null)
+/** 子代理模态窗(点击 DAG 节点 / 聊天中子代理块打开) */
+const subModal = ref<{ callId: string; agentName: string } | null>(null)
 
 onMounted(async () => {
   await agent.init()
@@ -39,10 +42,12 @@ onMounted(async () => {
       <ChatPane
         :agent="agent"
         :on-open-settings="() => (showSettings = true)"
+        @open-sub="(callId, agentName) => (subModal = { callId, agentName })"
       />
       <InfoPanel
         :agent="agent"
         :meta="meta"
+        @open-sub="(callId, agentName) => (subModal = { callId, agentName })"
       />
     </div>
 
@@ -65,6 +70,14 @@ onMounted(async () => {
       v-if="showPicker"
       :agent="agent"
       @close="showPicker = false"
+    />
+
+    <SubAgentModal
+      v-if="subModal"
+      :agent="agent"
+      :call-id="subModal.callId"
+      :agent-name="subModal.agentName"
+      @close="subModal = null"
     />
   </div>
 </template>

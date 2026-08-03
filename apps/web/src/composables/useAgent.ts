@@ -1,5 +1,5 @@
 import { computed, reactive, ref } from 'vue'
-import type { AgentConfig, HistoryItem, SessionEvent, SessionList, SessionMeta, SessionStatus, Workspace } from '@workflows/shared'
+import type { AgentConfig, HistoryItem, RunSnapshot, SessionEvent, SessionList, SessionMeta, SessionStatus, Workspace } from '@workflows/shared'
 
 export interface UiToolRun {
   callId: string
@@ -29,6 +29,23 @@ export interface UiMessage {
   model?: string
   status: 'streaming' | 'done' | 'error'
   errorText?: string
+}
+
+/** 子代理会话(模态窗数据容器):按主代理工具调用的 callId 归集 */
+export interface UiSubSession {
+  callId: string
+  agentName: string
+  messages: UiMessage[]
+  status: 'running' | 'done' | 'error'
+  summary: string
+  artifact: string | null
+}
+
+/** 闸门请求(planner 完成后等待用户批准) */
+export interface UiGateRequest {
+  runId: string
+  planFile: string | null
+  summary: string
 }
 
 /** 聚合:正文全文(按片段顺序拼接) */
@@ -97,6 +114,13 @@ export function useAgent() {
   const status = ref<SessionStatus | null>(null)
   const toolRuns = ref<Array<{ ts: number; name: string; callId: string; isError: boolean }>>([])
   const connectionError = ref<string | null>(null)
+  // ---- 工作流编排 ----
+  /** run 快照(右侧 DAG 图 / 恢复用) */
+  const run = ref<RunSnapshot | null>(null)
+  /** 子代理会话容器:callId → 实时消息(模态窗) */
+  const subSessions = reactive(new Map<string, UiSubSession>())
+  /** 闸门请求(等待用户批准) */
+  const gateRequest = ref<UiGateRequest | null>(null)
 
   // 当前流式 assistant 消息(增量累积)
   let pending: UiMessage | null = null
@@ -172,6 +196,8 @@ export function useAgent() {
   function applySessionData(data: SessionData): void {
     pending = null
     toolRuns.value = []
+    subSessions.clear()
+    gateRequest.value = null
     messages.value = data.history.map((item) => ({
       id: item.id,
       role: item.role,
@@ -197,6 +223,7 @@ export function useAgent() {
     const data = await request<SessionData>(`/api/agent/workspaces/${id}/open`, { method: 'POST' })
     activeWorkspaceId.value = id
     applySessionData(data)
+    await refreshRun()
   }
 
   /** 新建会话:旧会话 JSONL 全部保留,新会话成为当前 */
@@ -206,6 +233,7 @@ export function useAgent() {
     if (streaming.value) await abort()
     const data = await request<SessionData>(`/api/agent/workspaces/${workspaceId}/sessions`, { method: 'POST' })
     applySessionData(data)
+    await refreshRun()
   }
 
   /** 切换会话:加载该会话历史并激活 */
@@ -215,6 +243,7 @@ export function useAgent() {
     if (streaming.value) await abort()
     const data = await request<SessionData>(`/api/agent/workspaces/${workspaceId}/sessions/${sessionId}`, { method: 'POST' })
     applySessionData(data)
+    await refreshRun()
   }
 
   /** 删除会话;删除的是当前会话时,自动切到剩余最新会话 */
@@ -232,6 +261,7 @@ export function useAgent() {
       // 重新打开:后端已自动激活剩余最新会话
       const open = await request<SessionData>(`/api/agent/workspaces/${workspaceId}/open`, { method: 'POST' })
       applySessionData(open)
+      await refreshRun()
     }
   }
 
@@ -353,8 +383,148 @@ export function useAgent() {
           pending.status = 'done'
           pending = null
         }
+        void refreshRun()
+        break
+      /* ---- 工作流编排事件 ---- */
+      case 'sub_message_start': {
+        const sub = ensureSubSession(event.callId, event.role === 'assistant' ? '运行中' : '')
+        const msg: UiMessage = reactive({
+          id: event.id,
+          role: event.role,
+          // user 消息(子代理任务)由后端附带完整文本
+          segments: event.text ? [{ kind: 'text', text: event.text }] : [],
+          thinkingOpen: false,
+          status: 'streaming',
+        })
+        sub.messages.push(msg)
+        break
+      }
+      case 'sub_text_delta': {
+        const msg = lastSubMessage(event.callId)
+        if (msg) appendSegment(msg, { kind: 'text', text: event.delta })
+        break
+      }
+      case 'sub_thinking_delta': {
+        const msg = lastSubMessage(event.callId)
+        if (msg) appendSegment(msg, { kind: 'thinking', text: event.delta })
+        break
+      }
+      case 'sub_tool_start': {
+        const msg = lastSubMessage(event.callId)
+        if (msg) {
+          msg.segments.push({
+            kind: 'tool',
+            callId: event.toolCallId,
+            name: event.toolName,
+            output: '',
+            isError: false,
+            collapsed: true,
+          })
+        }
+        break
+      }
+      case 'sub_tool_update': {
+        const msg = lastSubMessage(event.callId)
+        if (msg) {
+          const tool = findToolSegment(msg, event.toolCallId)
+          if (tool) tool.output += event.delta
+        }
+        break
+      }
+      case 'sub_tool_end': {
+        const msg = lastSubMessage(event.callId)
+        if (msg) {
+          const tool = findToolSegment(msg, event.toolCallId)
+          if (tool) {
+            tool.output = event.output
+            tool.isError = event.isError
+          }
+        }
+        break
+      }
+      case 'sub_end': {
+        // 该次调用下所有还在 streaming 的消息统一收尾,避免历史消息残留流式光标
+        const sub = subSessions.get(event.callId)
+        if (sub) {
+          for (const m of sub.messages) {
+            if (m.status === 'streaming') m.status = 'done'
+          }
+          sub.status = 'done'
+          sub.summary = event.summary
+          sub.artifact = event.artifact
+        }
+        break
+      }
+      case 'gate_required':
+        gateRequest.value = {
+          runId: event.runId,
+          planFile: event.planFile,
+          summary: event.summary,
+        }
+        void refreshRun()
         break
     }
+  }
+
+  /** 确保子代理会话容器存在(模态窗数据源) */
+  function ensureSubSession(callId: string, agentName: string): UiSubSession {
+    let sub = subSessions.get(callId)
+    if (!sub) {
+      sub = reactive<UiSubSession>({
+        callId,
+        agentName,
+        messages: [],
+        status: 'running',
+        summary: '',
+        artifact: null,
+      })
+      subSessions.set(callId, sub)
+    }
+    if (agentName && !sub.agentName) sub.agentName = agentName
+    return sub
+  }
+
+  /** 该 callId 当前流式消息(增量事件的目标);无流式消息时取最后一条 */
+  function lastSubMessage(callId: string): UiMessage | null {
+    const sub = subSessions.get(callId)
+    if (!sub) return null
+    for (let i = sub.messages.length - 1; i >= 0; i--) {
+      const m = sub.messages[i]
+      if (m.status === 'streaming') return m
+    }
+    return sub.messages.at(-1) ?? null
+  }
+
+  /** 拉取 run 快照(打开工作区 / 回合结束 / 闸门时刷新) */
+  async function refreshRun(): Promise<void> {
+    const workspaceId = activeWorkspaceId.value
+    if (!workspaceId) {
+      run.value = null
+      return
+    }
+    try {
+      run.value = await request<RunSnapshot | null>(`/api/agent/workspaces/${workspaceId}/run`)
+    } catch {
+      // 忽略:run 不可用不影响聊天
+    }
+  }
+
+  /** 子代理历史回看(模态窗;实时数据缺失时调用) */
+  async function fetchSubHistory(callId: string): Promise<UiMessage[]> {
+    const workspaceId = activeWorkspaceId.value
+    if (!workspaceId) return []
+    const history = await request<HistoryItem[]>(`/api/agent/workspaces/${workspaceId}/run/agents/${callId}`)
+    return history.map((item) => ({
+      id: item.id,
+      role: item.role,
+      segments: item.blocks.map((block) =>
+        block.type === 'tool'
+          ? { kind: 'tool' as const, callId: block.callId, name: block.name, output: block.output ?? '', isError: block.isError ?? false, collapsed: true }
+          : { kind: block.type, text: block.text },
+      ),
+      thinkingOpen: false,
+      status: 'done' as const,
+    }))
   }
 
   /** 发送消息:POST 后通过 SSE 流式接收 agent 事件 */
@@ -428,6 +598,11 @@ export function useAgent() {
     }
   }
 
+  /** 清除闸门提示(用户已批准/驳回,消息已续跑) */
+  function dismissGate(): void {
+    gateRequest.value = null
+  }
+
   return {
     config,
     workspaces,
@@ -439,6 +614,9 @@ export function useAgent() {
     status,
     toolRuns,
     connectionError,
+    run,
+    subSessions,
+    gateRequest,
     hasApiKey,
     init,
     refreshConfig,
@@ -456,6 +634,9 @@ export function useAgent() {
     deleteSession,
     abort,
     refreshStatus,
+    refreshRun,
+    fetchSubHistory,
+    dismissGate,
   }
 }
 

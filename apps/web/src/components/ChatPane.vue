@@ -14,10 +14,15 @@ const props = defineProps<{
   onOpenSettings: () => void
 }>()
 
+const emit = defineEmits<{
+  openSub: [callId: string, agentName: string]
+}>()
+
 const draft = ref('')
 const scroller = ref<HTMLElement | null>(null)
 const stickToBottom = ref(true)
 const sendError = ref<string | null>(null)
+const rejectDraft = ref('')
 
 function onScroll() {
   const el = scroller.value
@@ -70,6 +75,42 @@ function toggleThinking(message: { thinkingOpen: boolean }) {
 function toggleTool(message: UiMessage, callId: string) {
   const tool = findToolSegment(message, callId)
   if (tool) tool.collapsed = !tool.collapsed
+}
+
+/** 工具块点击:子代理调用(有 sub 会话或 run 记录)打开模态窗 */
+function onToolClick(message: UiMessage, callId: string, toolName: string) {
+  const hasSub = props.agent.subSessions.has(callId)
+  const hasRun = props.agent.run.value?.agents.some((a) => a.callId === callId)
+  if (hasSub || hasRun) {
+    emit('openSub', callId, toolName)
+    return
+  }
+  toggleTool(message, callId)
+}
+
+/** 闸门:批准计划 */
+async function approvePlan(): Promise<void> {
+  sendError.value = null
+  props.agent.dismissGate()
+  try {
+    await props.agent.sendMessage('用户已批准计划,继续执行')
+  } catch (error) {
+    sendError.value = error instanceof Error ? error.message : String(error)
+  }
+}
+
+/** 闸门:驳回计划(带意见回 planner) */
+async function rejectPlan(): Promise<void> {
+  const reason = rejectDraft.value.trim()
+  if (!reason) return
+  sendError.value = null
+  props.agent.dismissGate()
+  rejectDraft.value = ''
+  try {
+    await props.agent.sendMessage(`用户驳回:${reason},请修改计划`)
+  } catch (error) {
+    sendError.value = error instanceof Error ? error.message : String(error)
+  }
 }
 </script>
 
@@ -143,12 +184,59 @@ function toggleTool(message: UiMessage, callId: string) {
           :message="msg"
           @toggle-thinking="toggleThinking"
           @toggle-tool="toggleTool"
+          @tool-click="onToolClick"
         />
       </div>
     </div>
 
     <!-- 输入区 -->
     <div class="shrink-0 border-t border-edge bg-panel/60 px-5 pb-3.5 pt-3">
+      <!-- 闸门:计划待批准 -->
+      <div
+        v-if="agent.gateRequest.value"
+        class="mb-2.5 border border-signal/50 bg-signal/5 px-3.5 py-3"
+      >
+        <div class="flex items-center gap-2">
+          <span class="grid size-4 place-items-center border border-signal/70 bg-signal/10 text-[9px] leading-none text-signal">⏸</span>
+          <span class="font-display text-[10px] tracking-[0.2em] text-signal">计划待批准</span>
+          <span
+            v-if="agent.gateRequest.value.planFile"
+            class="truncate font-mono text-[9px] text-faint"
+          >{{ agent.gateRequest.value.planFile }}</span>
+        </div>
+        <p
+          v-if="agent.gateRequest.value.summary"
+          class="mt-2 text-[12px] leading-relaxed text-dim"
+        >
+          {{ agent.gateRequest.value.summary }}
+        </p>
+        <div class="mt-2.5 flex items-center gap-2">
+          <button
+            type="button"
+            class="border border-ok/60 bg-ok/10 px-4 py-1.5 font-display text-[10px] tracking-widest text-ok transition hover:bg-ok/20 disabled:opacity-40"
+            :disabled="agent.streaming.value"
+            @click="approvePlan"
+          >
+            批准执行
+          </button>
+          <input
+            v-model="rejectDraft"
+            type="text"
+            :disabled="agent.streaming.value"
+            placeholder="驳回意见(回 planner 修改)…"
+            class="min-w-0 flex-1 border border-edge bg-ink px-2.5 py-1.5 text-[11px] text-fg placeholder:text-faint focus:border-signal/60"
+          >
+          <button
+            type="button"
+            class="shrink-0 border border-err/50 bg-err/5 px-3 py-1.5 font-display text-[10px] tracking-widest text-err transition hover:bg-err/15 disabled:opacity-40"
+            :disabled="!rejectDraft.trim() || agent.streaming.value"
+            @click="rejectPlan"
+          >
+            驳回
+          </button>
+        </div>
+      </div>
+
       <p
         v-if="sendError"
         class="mb-2 font-mono text-[10px] text-err"

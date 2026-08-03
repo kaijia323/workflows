@@ -8,6 +8,7 @@ const props = defineProps<{ message: UiMessage }>()
 const emit = defineEmits<{
   'toggle-thinking': [message: UiMessage]
   'toggle-tool': [message: UiMessage, callId: string]
+  'tool-click': [message: UiMessage, callId: string, toolName: string]
 }>()
 
 /** 流式光标 HTML(模板内不便内联引号,提取为常量) */
@@ -138,7 +139,7 @@ function formatTokens(n: number | undefined): string {
             <button
               type="button"
               class="flex w-full items-center gap-2 px-3.5 py-1.5 text-left transition hover:bg-ink/40"
-              @click="emit('toggle-tool', message, block.tool.callId)"
+              @click="emit('tool-click', message, block.tool.callId, block.tool.name)"
             >
               <span
                 class="size-1.5 shrink-0 rounded-full"
@@ -147,9 +148,11 @@ function formatTokens(n: number | undefined): string {
               <span class="font-display text-[10px] tracking-widest text-dim">{{ toolLabel(block.tool.name) }}</span>
               <span class="truncate font-mono text-[10px] text-faint">{{ block.tool.name }}</span>
               <span
-                class="ml-auto inline-block w-3 text-center font-mono text-[10px] text-faint transition-transform duration-200"
-                :class="block.tool.collapsed ? '' : 'rotate-90'"
-              >▸</span>
+                class="ml-auto shrink-0 font-mono text-[9px] tracking-wider"
+                :class="block.tool.isError ? 'text-err/80' : 'text-faint'"
+              >
+                {{ block.tool.collapsed ? '▸ 详情' : '▾ 收起' }}
+              </span>
             </button>
             <pre
               v-if="!block.tool.collapsed && block.tool.output"

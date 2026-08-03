@@ -8,7 +8,9 @@ Turborepo monorepo — 基于 pi SDK 的 Web Agent 工作台(DAG 可视化骨架
 - **持久化会话**:每个工作区独立会话,上下文严格限定在该目录,可恢复历史
 - **流式对话**:思考过程 / 正文 / 工具调用以 SSE 实时渲染,统计 token 用量与费用
 - **模型配置**:切换 DeepSeek 模型与思考级别,手动填入 API key(存于 `.workflows/config.json`)
-- **DAG 骨架**:`/api/dag` 示例接口(可视化流水线待后续迭代)
+- **工作流编排**:主代理(总指挥)调度 4 个内置子代理(explorer 探索 → planner 计划 → executor 执行 ⇄ reviewer 审查),计划需人工闸门批准;右侧 DAG 图实时展示节点状态,点击查看子代理完整对话(模态窗)
+- **代理文件化**:代理定义 = markdown(frontmatter 声明能力 + 正文定义行为),内置随代码分发,`.workflows/agents/` 同名覆盖或新增自定义代理
+- **黑板产物**:每次需求处理(run)的探索/计划/执行/审查报告落盘 `.wf-runs/<runId>/`,可 git 追踪
 
 ## 技术栈
 
@@ -69,6 +71,8 @@ pnpm test        # Vitest(依赖 build)
 | GET | `/agent/workspaces/:id/status` | 会话状态(模型/用量/是否流式中) |
 | POST | `/agent/workspaces/:id/prompt` | 发送消息(**SSE 流式**返回事件) |
 | POST | `/agent/workspaces/:id/abort` | 中止当前生成 |
+| GET | `/agent/workspaces/:id/run` | 当前 run 快照(DAG 图 / 闸门状态 / 恢复) |
+| GET | `/agent/workspaces/:id/run/agents/:callId` | 子代理调用历史(模态窗回看) |
 
 统一响应结构:`{ code, message, data }`。
 
