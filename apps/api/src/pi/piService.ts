@@ -14,6 +14,7 @@ import {
   type ToolDefinition,
 } from '@earendil-works/pi-coding-agent'
 import { createWorkspaceBashHook, guardPathTool, toToolDefinition } from './workspaceGuard.js'
+import { createFffFindTool, createFffGrepTool, FffIndexManager } from './fffTools.js'
 import type {
   AgentConfig,
   HistoryBlock,
@@ -65,6 +66,8 @@ export class PiAgentService {
   private readonly store: WorkflowsStore
   private readonly runtime: ModelRuntime
   private readonly handles = new Map<string, SessionHandle>()
+  /** 每工作区一个 fff 索引(原生 Rust,毫秒级搜索;清理随工作区) */
+  private readonly fff = new FffIndexManager()
 
   private constructor(store: WorkflowsStore, runtime: ModelRuntime) {
     this.store = store
@@ -185,14 +188,35 @@ export class PiAgentService {
     // 工作区边界守卫:所有工具都无法逃逸到工作区目录之外
     // - bash:createBashTool 注入 spawnHook,unbash 解析命令静态审计(重定向/文件命令/cd/嵌套替换)
     // - read/write/edit/grep/find/ls:包装 execute,参数路径先校验
+    // - 搜索工具:fff 优先(每工作区常驻索引,毫秒级);fff 创建失败时回退内置 grep/find
+    const builtinTools = workspace.readOnly
+      ? createReadOnlyTools(workspace.path)
+      : createCodingTools(workspace.path).filter((tool) => tool.name !== 'bash')
+    const nonSearchTools = builtinTools
+      .filter((tool) => tool.name !== 'grep' && tool.name !== 'find')
+      .map((tool) => guardPathTool(toToolDefinition(tool), workspace.path))
+    const finder = this.fff.get(workspace.id, workspace.path)
+    const searchTools: ToolDefinition[] = finder
+      ? [
+          guardPathTool(createFffFindTool(finder, workspace.path), workspace.path),
+          guardPathTool(createFffGrepTool(finder, workspace.path), workspace.path),
+        ]
+      : builtinTools
+          .filter((tool) => tool.name === 'grep' || tool.name === 'find')
+          .map((tool) => guardPathTool(toToolDefinition(tool), workspace.path))
     const guardedTools: ToolDefinition[] = workspace.readOnly
-      ? createReadOnlyTools(workspace.path).map((tool) => guardPathTool(toToolDefinition(tool), workspace.path))
+      ? [...nonSearchTools, ...searchTools]
       : [
-          ...createCodingTools(workspace.path)
-            .filter((tool) => tool.name !== 'bash')
-            .map((tool) => guardPathTool(toToolDefinition(tool), workspace.path)),
+          ...nonSearchTools,
+          ...searchTools,
           toToolDefinition(createBashTool(workspace.path, { spawnHook: createWorkspaceBashHook(workspace.path) })),
         ]
+    // 注意:SDK 的 allowedToolNames(tools 参数)会过滤 customTools 注册表,
+    // 所以 fff 工具必须显式列入;内置 grep/find 不列入即不开放
+    const searchNames = searchTools.map((tool) => tool.name)
+    const activeTools = workspace.readOnly
+      ? ['read', 'ls', ...searchNames]
+      : ['read', 'bash', 'edit', 'write', ...searchNames]
 
     const { session } = await createAgentSession({
       cwd: workspace.path,
@@ -202,8 +226,8 @@ export class PiAgentService {
       thinkingLevel: (stored.thinkingLevel as ModelThinkingLevel | undefined) ?? 'off',
       sessionManager,
       customTools: guardedTools,
-      // 权限:只读工作区仅暴露只读工具,其余用默认工具(read/bash/edit/write),cwd 均绑定工作区
-      tools: workspace.readOnly ? ['read', 'grep', 'find', 'ls'] : undefined,
+      // 权限:只读工作区仅暴露只读工具;内置 grep/find 不开放,由 fff-find/fff-grep 取代
+      tools: activeTools,
     })
 
     // 注册/回填会话条目:新建的会话文件路径写回存储,消息数同步
@@ -297,6 +321,8 @@ export class PiAgentService {
     }
     // 清理工作区目录(空目录才删;若残留孤儿文件则保留)
     rmSync(sessionDirFor(this.store, workspace.id), { force: true })
+    // 释放 fff 索引原生资源
+    this.fff.dispose(workspace.id)
   }
 
   /** 会话列表(当前打开的会话消息数实时回写) */
