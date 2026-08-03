@@ -1,5 +1,5 @@
 {
-  "name": "@dag-pi/web",
+  "name": "@workflows/web",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -12,7 +12,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@dag-pi/shared": "workspace:*",
+    "@workflows/shared": "workspace:*",
     "@fontsource/chakra-petch": "^5.3.0",
     "@fontsource/instrument-sans": "^5.3.0",
     "@fontsource/jetbrains-mono": "^5.3.0",

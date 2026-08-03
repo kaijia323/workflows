@@ -1,6 +1,6 @@
 # AGENTS.md
 
-dag-pi 项目给 AI 编码 agent 的上下文速览。精简概念,详见 README.md。
+workflows 项目给 AI 编码 agent 的上下文速览。精简概念,详见 README.md。
 
 ## 这是什么
 
@@ -11,17 +11,17 @@ Turborepo monorepo — 基于 **pi SDK** 的 Web Agent 工作台(聊天 + 工作
 | 包 | 职责 |
 | --- | --- |
 | `apps/web` | Vue 3 + Vite + Tailwind v4,聊天 UI(组件在 `src/components`,SSE 接入在 `src/composables/useAgent.ts`) |
-| `apps/api` | **Hono** + pi SDK。`src/pi/piService.ts` 是服务层(ModelRuntime + 每工作区一个 `AgentSession`);`src/agent/routes.ts` 是路由;`src/config.ts` 是 `.dag-pi` 存储 |
+| `apps/api` | **Hono** + pi SDK。`src/pi/piService.ts` 是服务层(ModelRuntime + 每工作区一个 `AgentSession`);`src/agent/routes.ts` 是路由;`src/config.ts` 是 `.workflows` 存储 |
 | `packages/shared` | 纯类型包。**改动后需先 `pnpm build`** 再被 api/web 消费(workspace 依赖构建产物) |
 
 ## 关键约定
 
 - **统一响应结构**:`{ code, message, data }`,code 0 为成功;错误经 `app.onError` 统一格式化,不抛裸异常到前端
-- **数据隔离**:所有运行数据(API key / 工作区 / 会话)存 `.dag-pi/`,开发在仓库根、生产在 `~/.dag-pi`,**绝不读写 pi 全局配置 `~/.pi/agent`**
+- **数据隔离**:所有运行数据(API key / 工作区 / 会话)存 `.workflows/`,开发在仓库根、生产在 `~/.workflows`,**绝不读写 pi 全局配置 `~/.pi/agent`**
 - **会话模型**:一个工作区一个持久化会话(JSONL),上下文限定在工作区目录;只读工作区只给 `read/grep/find/ls` 工具
 - **流式输出**:`POST /api/agent/workspaces/:id/prompt` 走 SSE,事件类型见 shared 的 `SessionEvent`;前端按模型输出顺序渲染(思考/正文/工具调用交错)
 - **端口**:开发 web 15200(代理 `/api` → 3000),生产 api 5200 单端口托管前端 + API
-- **API key**:用户手动输入 DeepSeek key,存 `.dag-pi/config.json`,运行时注入 `ModelRuntime`,key 本身不返回前端
+- **API key**:用户手动输入 DeepSeek key,存 `.workflows/config.json`,运行时注入 `ModelRuntime`,key 本身不返回前端
 
 ## 命令
 

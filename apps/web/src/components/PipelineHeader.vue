@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import type { Workspace } from '@dag-pi/shared'
+import type { Workspace } from '@workflows/shared'
 
 /**
  * 管线签名:顶部贯穿三栏的「源 → 处理 → 观测」流水线。
@@ -26,7 +26,7 @@ const processingDetail = computed(() => (props.streaming ? '运行中' : props.m
         <span class="size-1.5 bg-signal" />
       </span>
       <span class="font-display text-sm font-semibold tracking-[0.18em] text-fg">
-        DAG<span class="text-signal">·</span>PI
+        WORKFLOWS
       </span>
       <span class="mt-0.5 hidden font-mono text-[10px] tracking-wider text-faint xl:inline">AGENT CONSOLE</span>
     </div>

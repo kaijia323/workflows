@@ -17,7 +17,7 @@ import type {
   SessionMeta,
   SessionStatus,
   Workspace,
-} from '@dag-pi/shared'
+} from '@workflows/shared'
 import {
   createStore,
   getActiveSession,
@@ -33,7 +33,7 @@ import {
   sessionFileFor,
   setApiKey,
   updateSessionMeta,
-  type DagPiStore,
+  type WorkflowsStore,
 } from '../config.js'
 
 const DEFAULT_MODEL = 'deepseek-v4-flash'
@@ -52,16 +52,16 @@ interface SessionHandle {
 /**
  * pi SDK 服务层:
  * - 使用 pi SDK(与 pi CLI 无关),不读取/修改任何 pi 全局配置(~/.pi/agent)
- * - ModelRuntime 的 auth/models 路径全部隔离到 .dag-pi/agent 下
- * - DeepSeek API key 由用户手动输入,保存在 .dag-pi/config.json,运行时注入
+ * - ModelRuntime 的 auth/models 路径全部隔离到 .workflows/agent 下
+ * - DeepSeek API key 由用户手动输入,保存在 .workflows/config.json,运行时注入
  * - 每个工作区一个持久化会话(上下文严格限定在该工作区目录)
  */
 export class PiAgentService {
-  private readonly store: DagPiStore
+  private readonly store: WorkflowsStore
   private readonly runtime: ModelRuntime
   private readonly handles = new Map<string, SessionHandle>()
 
-  private constructor(store: DagPiStore, runtime: ModelRuntime) {
+  private constructor(store: WorkflowsStore, runtime: ModelRuntime) {
     this.store = store
     this.runtime = runtime
   }
@@ -83,7 +83,7 @@ export class PiAgentService {
 
   /* ---------------- 配置 ---------------- */
 
-  /** 保存用户手动输入的 API key(仅存 .dag-pi/config.json,运行时注入,不写任何 pi 配置) */
+  /** 保存用户手动输入的 API key(仅存 .workflows/config.json,运行时注入,不写任何 pi 配置) */
   setApiKey(key: string): void {
     setApiKey(this.store, key)
     this.runtime.setRuntimeApiKey('deepseek', key.trim())
@@ -132,7 +132,7 @@ export class PiAgentService {
     return this.getConfig()
   }
 
-  /** 保存模型/思考级别到 .dag-pi/config.json(不落任何 pi 配置) */
+  /** 保存模型/思考级别到 .workflows/config.json(不落任何 pi 配置) */
   private storeConfig(patch: { model?: string; thinkingLevel?: string }): void {
     const file = this.store.configPath
     const current = existsSync(file) ? (JSON.parse(readFileSync(file, 'utf-8')) as Record<string, unknown>) : {}
@@ -167,13 +167,13 @@ export class PiAgentService {
 
     const stored = loadConfig(this.store)
     const model = this.runtime.getModel('deepseek', stored.model ?? DEFAULT_MODEL) ?? undefined
-    // 会话文件按工作区隔离在 .dag-pi/agent/sessions/<workspaceId>/ 下,
+    // 会话文件按工作区隔离在 .workflows/agent/sessions/<workspaceId>/ 下,
     // 绝不写入用户全局 ~/.pi/agent/sessions
     const sessionDir = sessionDirFor(this.store, workspace.id)
     const sessionFile = targetId ? sessionFileFor(this.store, workspace.id, targetId) : undefined
     const sessionManager = sessionFile
       ? SessionManager.open(sessionFile)
-      : // 关键:显式指定 sessionDir,会话文件落在 .dag-pi/agent/sessions 下,
+      : // 关键:显式指定 sessionDir,会话文件落在 .workflows/agent/sessions 下,
       // 绝不写入用户全局 ~/.pi/agent/sessions
       SessionManager.create(workspace.path, sessionDir)
 

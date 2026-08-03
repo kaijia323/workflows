@@ -5,7 +5,7 @@ import { toolLabel } from '../composables/useAgent'
 
 const props = defineProps<{
   agent: AgentStore
-  meta: { dagPiRoot: string; environment: string } | null
+  meta: { workflowsRoot: string; environment: string } | null
 }>()
 
 const ws = computed(() => props.agent.activeWorkspace.value)
@@ -203,9 +203,9 @@ function fmt(n: number | undefined): string {
             </dt>
             <dd
               class="truncate text-dim"
-              :title="meta.dagPiRoot"
+              :title="meta.workflowsRoot"
             >
-              {{ meta.dagPiRoot }}
+              {{ meta.workflowsRoot }}
             </dd>
           </div>
         </dl>

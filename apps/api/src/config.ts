@@ -3,21 +3,21 @@ import { homedir } from 'node:os'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
-import type { Workspace } from '@dag-pi/shared'
+import type { Workspace } from '@workflows/shared'
 
 /**
- * .dag-pi 配置根目录(分环境):
- * - 开发环境:NODE_ENV !== production → <repo>/dag-pi/.dag-pi
- * - 生产环境:NODE_ENV === production  → ~/.dag-pi
+ * .workflows 配置根目录(分环境):
+ * - 开发环境:NODE_ENV !== production → <repo>/.workflows
+ * - 生产环境:NODE_ENV === production  → ~/.workflows
  *
  * 说明:src/ 与 dist/ 下均向上三级到仓库根,两条路径一致。
  */
-export function dagPiRoot(): string {
+export function workflowsRoot(): string {
   const isProduction = process.env.NODE_ENV === 'production'
   if (isProduction) {
-    return path.join(homedir(), '.dag-pi')
+    return path.join(homedir(), '.workflows')
   }
-  return path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '.dag-pi')
+  return path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '.workflows')
 }
 
 interface StoredConfig {
@@ -26,7 +26,7 @@ interface StoredConfig {
   thinkingLevel?: string
 }
 
-export interface DagPiStore {
+export interface WorkflowsStore {
   /** 配置根目录 */
   root: string
   /** agent 隔离目录(auth/models/settings/sessions 均在此,不触碰 ~/.pi/agent) */
@@ -40,8 +40,8 @@ function ensureDir(dir: string): void {
   mkdirSync(dir, { recursive: true })
 }
 
-export function createStore(): DagPiStore {
-  const root = dagPiRoot()
+export function createStore(): WorkflowsStore {
+  const root = workflowsRoot()
   ensureDir(root)
   const agentDir = path.join(root, 'agent')
   ensureDir(agentDir)
@@ -69,11 +69,11 @@ function writeJson(file: string, value: unknown): void {
 
 /* ---------------- config.json ---------------- */
 
-export function loadConfig(store: DagPiStore): StoredConfig {
+export function loadConfig(store: WorkflowsStore): StoredConfig {
   return readJson<StoredConfig>(store.configPath, {})
 }
 
-export function saveConfig(store: DagPiStore, patch: Partial<StoredConfig>): StoredConfig {
+export function saveConfig(store: WorkflowsStore, patch: Partial<StoredConfig>): StoredConfig {
   const next = { ...loadConfig(store), ...patch }
   // 显式清除字段(空字符串视为删除)
   for (const [key, value] of Object.entries(patch)) {
@@ -85,13 +85,13 @@ export function saveConfig(store: DagPiStore, patch: Partial<StoredConfig>): Sto
   return next
 }
 
-/** 保存用户手动输入的 API key 到 .dag-pi/config.json */
-export function setApiKey(store: DagPiStore, key: string): void {
+/** 保存用户手动输入的 API key 到 .workflows/config.json */
+export function setApiKey(store: WorkflowsStore, key: string): void {
   saveConfig(store, { apiKey: key.trim() })
 }
 
 /** 是否已配置 key(不把 key 本身返回给前端) */
-export function hasApiKey(store: DagPiStore): boolean {
+export function hasApiKey(store: WorkflowsStore): boolean {
   return Boolean(loadConfig(store).apiKey)
 }
 
@@ -101,11 +101,11 @@ interface StoredWorkspaces {
   workspaces: Workspace[]
 }
 
-export function loadWorkspaces(store: DagPiStore): Workspace[] {
+export function loadWorkspaces(store: WorkflowsStore): Workspace[] {
   return readJson<StoredWorkspaces>(store.workspacesPath, { workspaces: [] }).workspaces
 }
 
-export function addWorkspace(store: DagPiStore, dir: string): Workspace | undefined {
+export function addWorkspace(store: WorkflowsStore, dir: string): Workspace | undefined {
   const resolved = path.resolve(dir)
   if (!isDirectory(resolved)) return undefined
   const workspaces = loadWorkspaces(store)
@@ -122,7 +122,7 @@ export function addWorkspace(store: DagPiStore, dir: string): Workspace | undefi
 }
 
 export function updateWorkspace(
-  store: DagPiStore,
+  store: WorkflowsStore,
   id: string,
   patch: Partial<Pick<Workspace, 'readOnly'>>,
 ): Workspace | undefined {
@@ -135,7 +135,7 @@ export function updateWorkspace(
   return next
 }
 
-export function removeWorkspace(store: DagPiStore, id: string): boolean {
+export function removeWorkspace(store: WorkflowsStore, id: string): boolean {
   const workspaces = loadWorkspaces(store)
   const next = workspaces.filter((w) => w.id !== id)
   if (next.length === workspaces.length) return false
@@ -169,11 +169,11 @@ export interface WorkspaceSessionsState {
 
 type StoredSessionsFile = Record<string, WorkspaceSessionsState | string>
 
-function saveSessionsFile(store: DagPiStore, file: Record<string, WorkspaceSessionsState>): void {
+function saveSessionsFile(store: WorkflowsStore, file: Record<string, WorkspaceSessionsState>): void {
   writeJson(store.sessionsPath, file)
 }
 
-function loadSessionsFile(store: DagPiStore): Record<string, WorkspaceSessionsState> {
+function loadSessionsFile(store: WorkflowsStore): Record<string, WorkspaceSessionsState> {
   const raw = readJson<StoredSessionsFile>(store.sessionsPath, {})
   const out: Record<string, WorkspaceSessionsState> = {}
   let migrated = false
@@ -196,7 +196,7 @@ function loadSessionsFile(store: DagPiStore): Record<string, WorkspaceSessionsSt
 
 /** 变更工作区会话状态,自动持久化;返回变更后的状态 */
 export function mutateSessions(
-  store: DagPiStore,
+  store: WorkflowsStore,
   workspaceId: string,
   mutate: (state: WorkspaceSessionsState) => void,
 ): WorkspaceSessionsState {
@@ -209,26 +209,26 @@ export function mutateSessions(
 }
 
 /** 工作区会话列表(按创建时间升序) */
-export function listSessions(store: DagPiStore, workspaceId: string): StoredSessionMeta[] {
+export function listSessions(store: WorkflowsStore, workspaceId: string): StoredSessionMeta[] {
   const state = loadSessionsFile(store)[workspaceId]
   if (!state) return []
   return Object.values(state.sessions).sort((a, b) => a.createdAt - b.createdAt)
 }
 
 /** 当前激活会话 */
-export function getActiveSession(store: DagPiStore, workspaceId: string): StoredSessionMeta | undefined {
+export function getActiveSession(store: WorkflowsStore, workspaceId: string): StoredSessionMeta | undefined {
   const state = loadSessionsFile(store)[workspaceId]
   if (!state?.active) return undefined
   return state.sessions[state.active]
 }
 
 /** 指定会话(不存在返回 undefined) */
-export function getSession(store: DagPiStore, workspaceId: string, sessionId: string): StoredSessionMeta | undefined {
+export function getSession(store: WorkflowsStore, workspaceId: string, sessionId: string): StoredSessionMeta | undefined {
   return loadSessionsFile(store)[workspaceId]?.sessions[sessionId]
 }
 
 /** 工作区会话目录:sessions/<workspaceId>/,每个工作区独立子目录,与 pi SDK 默认按 cwd 编码隔离的精神一致 */
-export function sessionDirFor(store: DagPiStore, workspaceId: string): string {
+export function sessionDirFor(store: WorkflowsStore, workspaceId: string): string {
   const dir = path.join(store.agentDir, 'sessions', workspaceId)
   ensureDir(dir)
   return dir
@@ -239,7 +239,7 @@ export function sessionDirFor(store: DagPiStore, workspaceId: string): string {
  * → 按工作区隔离(sessions/<workspaceId>/)。移动文件并回写 sessionFile 引用。
  * 返回实际移动的文件数。
  */
-export function migrateSessionsLayout(store: DagPiStore): number {
+export function migrateSessionsLayout(store: WorkflowsStore): number {
   const file = loadSessionsFile(store)
   let moved = 0
   for (const [workspaceId, state] of Object.entries(file)) {
@@ -267,14 +267,14 @@ export function migrateSessionsLayout(store: DagPiStore): number {
 }
 
 /** 会话文件路径(条目缺失或文件已删除返回 undefined) */
-export function sessionFileFor(store: DagPiStore, workspaceId: string, sessionId?: string): string | undefined {
+export function sessionFileFor(store: WorkflowsStore, workspaceId: string, sessionId?: string): string | undefined {
   const meta = sessionId ? getSession(store, workspaceId, sessionId) : getActiveSession(store, workspaceId)
   if (!meta) return undefined
   return existsSync(meta.sessionFile) ? meta.sessionFile : undefined
 }
 
 /** 设置激活会话(会话必须已存在) */
-export function setActiveSession(store: DagPiStore, workspaceId: string, sessionId: string): void {
+export function setActiveSession(store: WorkflowsStore, workspaceId: string, sessionId: string): void {
   mutateSessions(store, workspaceId, (state) => {
     if (state.sessions[sessionId]) state.active = sessionId
   })
@@ -282,7 +282,7 @@ export function setActiveSession(store: DagPiStore, workspaceId: string, session
 
 /** 更新会话元信息(如消息数) */
 export function updateSessionMeta(
-  store: DagPiStore,
+  store: WorkflowsStore,
   workspaceId: string,
   sessionId: string,
   patch: Partial<Pick<StoredSessionMeta, 'messageCount'>>,
@@ -294,7 +294,7 @@ export function updateSessionMeta(
 }
 
 /** 删除会话条目;若删的是激活会话,自动激活剩余最新会话。返回删除后的状态 */
-export function removeSession(store: DagPiStore, workspaceId: string, sessionId: string): WorkspaceSessionsState {
+export function removeSession(store: WorkflowsStore, workspaceId: string, sessionId: string): WorkspaceSessionsState {
   return mutateSessions(store, workspaceId, (state) => {
     delete state.sessions[sessionId]
     if (state.active === sessionId) {
@@ -305,7 +305,7 @@ export function removeSession(store: DagPiStore, workspaceId: string, sessionId:
 }
 
 /** 删除工作区时移除其所有会话条目(JSONL 文件由调用方删除),返回被删条目 */
-export function removeWorkspaceSessions(store: DagPiStore, workspaceId: string): StoredSessionMeta[] {
+export function removeWorkspaceSessions(store: WorkflowsStore, workspaceId: string): StoredSessionMeta[] {
   const file = loadSessionsFile(store)
   const state = file[workspaceId]
   if (!state) return []

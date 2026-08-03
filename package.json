@@ -1,5 +1,5 @@
 {
-  "name": "dag-pi",
+  "name": "workflows",
   "private": true,
   "version": "0.0.0",
   "packageManager": "pnpm@10.33.0",
@@ -12,7 +12,7 @@
     "typecheck": "turbo run typecheck",
     "lint": "turbo run lint",
     "test": "turbo run test",
-    "start": "pnpm --filter @dag-pi/api start",
+    "start": "pnpm --filter @workflows/api start",
     "preview": "pnpm build && pnpm start",
     "prepare": "husky"
   },

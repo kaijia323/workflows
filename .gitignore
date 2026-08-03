@@ -20,5 +20,5 @@ npm-debug.log*
 .DS_Store
 *.local
 
-# local dag-pi config (dev)
-.dag-pi/
+# local workflows config (dev)
+.workflows/

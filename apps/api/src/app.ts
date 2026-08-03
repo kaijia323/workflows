@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url'
 import { Hono } from 'hono'
 import { serveStatic } from '@hono/node-server/serve-static'
 import { HTTPException } from 'hono/http-exception'
-import type { DagGraph, DagNode } from '@dag-pi/shared'
+import type { DagGraph, DagNode } from '@workflows/shared'
 import { createStore } from './config.js'
 import { registerAgentRoutes } from './agent/routes.js'
 import { PiAgentService } from './pi/piService.js'
@@ -18,7 +18,7 @@ const hasWebDist = existsSync(webDist)
 export const app = new Hono()
 
 /**
- * 初始化 pi agent 服务(创建 ModelRuntime 与 .dag-pi 存储,注册 agent 路由)。
+ * 初始化 pi agent 服务(创建 ModelRuntime 与 .workflows 存储,注册 agent 路由)。
  * 由 index.ts 启动时调用;测试环境无需调用。
  */
 export async function initAgentRoutes(): Promise<void> {

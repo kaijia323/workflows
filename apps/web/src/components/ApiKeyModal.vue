@@ -4,7 +4,7 @@ import type { AgentStore } from '../composables/useAgent'
 
 const props = defineProps<{
   agent: AgentStore
-  meta: { dagPiRoot: string; environment: string } | null
+  meta: { workflowsRoot: string; environment: string } | null
 }>()
 const emit = defineEmits<{ close: [] }>()
 
@@ -51,7 +51,7 @@ async function handleSave() {
       <!-- API key -->
       <p class="mt-5 text-[11px] leading-relaxed text-dim">
         输入 DeepSeek API key。key 仅保存在后端
-        <code class="font-mono text-signal/90">{{ meta?.environment === 'production' ? '~/.dag-pi' : '.dag-pi' }}</code>
+        <code class="font-mono text-signal/90">{{ meta?.environment === 'production' ? '~/.workflows' : '.workflows' }}</code>
         配置文件中,不会写入任何 pi 全局配置,也不会返回给前端。
       </p>
 
@@ -112,8 +112,8 @@ async function handleSave() {
         <p class="mt-1 flex justify-between gap-3">
           <span>配置目录</span><span
             class="truncate text-dim"
-            :title="meta.dagPiRoot"
-          >{{ meta.dagPiRoot }}</span>
+            :title="meta.workflowsRoot"
+          >{{ meta.workflowsRoot }}</span>
         </p>
       </div>
     </div>

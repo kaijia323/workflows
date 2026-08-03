@@ -1,5 +1,5 @@
 import { computed, reactive, ref } from 'vue'
-import type { AgentConfig, HistoryItem, SessionEvent, SessionList, SessionMeta, SessionStatus, Workspace } from '@dag-pi/shared'
+import type { AgentConfig, HistoryItem, SessionEvent, SessionList, SessionMeta, SessionStatus, Workspace } from '@workflows/shared'
 
 export interface UiToolRun {
   callId: string
@@ -122,7 +122,7 @@ export function useAgent() {
     }
   }
 
-  /** 用户手动输入 API key,保存到 .dag-pi/config.json */
+  /** 用户手动输入 API key,保存到 .workflows/config.json */
   async function saveApiKey(key: string): Promise<void> {
     await request('/api/agent/config/key', {
       method: 'PUT',

@@ -9,7 +9,7 @@ import ApiKeyModal from './components/ApiKeyModal.vue'
 
 const agent = useAgent()
 const showSettings = ref(false)
-const meta = ref<{ dagPiRoot: string; environment: string } | null>(null)
+const meta = ref<{ workflowsRoot: string; environment: string } | null>(null)
 
 onMounted(async () => {
   await agent.init()

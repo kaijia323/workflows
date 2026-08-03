@@ -2,11 +2,11 @@ import type { Context } from 'hono'
 import type { Hono } from 'hono'
 import { HTTPException } from 'hono/http-exception'
 import { streamSSE } from 'hono/streaming'
-import type { HistoryItem } from '@dag-pi/shared'
-import { addWorkspace, getActiveSession, getSession, hasApiKey, loadWorkspaces, removeWorkspace, updateWorkspace, type DagPiStore } from '../config.js'
+import type { HistoryItem } from '@workflows/shared'
+import { addWorkspace, getActiveSession, getSession, hasApiKey, loadWorkspaces, removeWorkspace, updateWorkspace, type WorkflowsStore } from '../config.js'
 import { PiAgentService } from '../pi/piService.js'
 
-export function registerAgentRoutes(app: Hono, store: DagPiStore, pi: PiAgentService): void {
+export function registerAgentRoutes(app: Hono, store: WorkflowsStore, pi: PiAgentService): void {
   /* ---------------- 元信息 ---------------- */
 
   app.get('/api/agent/meta', (c) =>
@@ -14,7 +14,7 @@ export function registerAgentRoutes(app: Hono, store: DagPiStore, pi: PiAgentSer
       code: 0,
       message: 'ok',
       data: {
-        dagPiRoot: store.root,
+        workflowsRoot: store.root,
         environment: process.env.NODE_ENV === 'production' ? 'production' : 'development',
       },
     }),
@@ -25,7 +25,7 @@ export function registerAgentRoutes(app: Hono, store: DagPiStore, pi: PiAgentSer
   // 运行配置(模型/思考级别/是否已配置 key)
   app.get('/api/agent/config', (c) => c.json({ code: 0, message: 'ok', data: pi.getConfig() }))
 
-  // 用户手动输入 DeepSeek API key,保存到 .dag-pi/config.json
+  // 用户手动输入 DeepSeek API key,保存到 .workflows/config.json
   app.put('/api/agent/config/key', async (c) => {
     const body = await readJson<{ apiKey?: string }>(c)
     const key = body?.apiKey?.trim()
@@ -180,7 +180,7 @@ async function readJson<T>(c: Context): Promise<T> {
   }
 }
 
-function requireWorkspace(store: DagPiStore, id: string) {
+function requireWorkspace(store: WorkflowsStore, id: string) {
   const workspace = loadWorkspaces(store).find((w) => w.id === id)
   if (!workspace) throw new HTTPException(404, { message: '工作区不存在' })
   return workspace

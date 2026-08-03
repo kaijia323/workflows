@@ -1,4 +1,4 @@
-# dag-pi
+# workflows
 
 Turborepo monorepo — 基于 pi SDK 的 Web Agent 工作台(DAG 可视化骨架)。
 
@@ -7,7 +7,7 @@ Turborepo monorepo — 基于 pi SDK 的 Web Agent 工作台(DAG 可视化骨架
 - **工作区管理**:添加/移除本地目录,支持只读模式(只读工作区仅暴露只读工具)
 - **持久化会话**:每个工作区独立会话,上下文严格限定在该目录,可恢复历史
 - **流式对话**:思考过程 / 正文 / 工具调用以 SSE 实时渲染,统计 token 用量与费用
-- **模型配置**:切换 DeepSeek 模型与思考级别,手动填入 API key(存于 `.dag-pi/config.json`)
+- **模型配置**:切换 DeepSeek 模型与思考级别,手动填入 API key(存于 `.workflows/config.json`)
 - **DAG 骨架**:`/api/dag` 示例接口(可视化流水线待后续迭代)
 
 ## 技术栈
@@ -18,14 +18,14 @@ Turborepo monorepo — 基于 pi SDK 的 Web Agent 工作台(DAG 可视化骨架
 | `apps/api` | Hono + `@hono/node-server` + pi SDK(`@earendil-works/pi-coding-agent`、`pi-ai`) |
 | `packages/shared` | 跨端共享类型 |
 
-## 数据存储(`.dag-pi/`)
+## 数据存储(`.workflows/`)
 
-所有数据隔离在项目自己的 `.dag-pi/` 目录,**不读取/不修改 pi 全局配置(`~/.pi/agent`)**:
+所有数据隔离在项目自己的 `.workflows/` 目录,**不读取/不修改 pi 全局配置(`~/.pi/agent`)**:
 
 | 环境 | 存储位置 |
 | --- | --- |
-| 开发 | `<repo>/dag-pi/.dag-pi`(已 gitignore) |
-| 生产 | `~/.dag-pi` |
+| 开发 | `<repo>/.workflows`(已 gitignore) |
+| 生产 | `~/.workflows` |
 
 包含 `config.json`(API key / 模型 / 思考级别)、`workspaces.json`(工作区列表)、
 `workspace-sessions.json`(会话文件索引)、`agent/`(pi ModelRuntime 的 auth/models 与会话文件)。
@@ -75,13 +75,13 @@ pnpm test        # Vitest(依赖 build)
 ## 目录结构
 
 ```
-dag-pi/
+workflows/
 ├── apps/
 │   ├── api/              # Hono API 服务(生产时托管 web/dist)
 │   │   └── src/
 │   │       ├── agent/    # agent 相关路由(配置/工作区/会话)
 │   │       ├── pi/       # pi SDK 服务层(ModelRuntime + 会话管理)
-│   │       ├── config.ts # .dag-pi 存储(JSON 读写)
+│   │       └── config.ts # .workflows 存储(JSON 读写)
 │   │       └── app.ts    # Hono app(静态托管 + SPA fallback)
 │   └── web/              # Vue 3 前端(dev 15200 / 构建产物 dist)
 │       └── src/
@@ -90,6 +90,6 @@ dag-pi/
 │           └── utils/        # markdown 渲染
 ├── packages/
 │   └── shared/           # 共享类型(构建产物供 api/web 消费)
-├── .dag-pi/              # 本地运行数据(开发环境,已 gitignore)
+├── .workflows/           # 本地运行数据(开发环境,已 gitignore)
 └── turbo.json
 ```

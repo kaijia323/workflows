@@ -40,7 +40,7 @@ function stubApi() {
     if (url === '/api/agent/meta') {
       return {
         ok: true,
-        json: async () => ({ code: 0, message: 'ok', data: { dagPiRoot: '/repo/.dag-pi', environment: 'development' } }),
+        json: async () => ({ code: 0, message: 'ok', data: { workflowsRoot: '/repo/.workflows', environment: 'development' } }),
       }
     }
     return { ok: false, json: async () => ({ code: 404, message: 'Not Found', data: null }) }
@@ -70,7 +70,7 @@ describe('App.vue', () => {
 
     // 右栏:观测面板
     expect(wrapper.text()).toContain('观测 · OBSERVE')
-    expect(wrapper.text()).toContain('/repo/.dag-pi')
+    expect(wrapper.text()).toContain('/repo/.workflows')
 
     // 未配置 key 时提示配置入口
     expect(wrapper.text()).toContain('配置 DeepSeek API KEY')

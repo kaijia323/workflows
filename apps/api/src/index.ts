@@ -1,7 +1,7 @@
 import { serve } from '@hono/node-server'
 import { app, initAgentRoutes } from './app.js'
 
-// 初始化 pi agent 服务(ModelRuntime + .dag-pi 存储 + agent 路由)
+// 初始化 pi agent 服务(ModelRuntime + .workflows 存储 + agent 路由)
 await initAgentRoutes()
 
 const isProduction = process.env.NODE_ENV === 'production'

@@ -43,7 +43,7 @@ describe('未知 API 路径', () => {
   })
 })
 
-describe.skipIf(!hasWebDist)('静态托管(需先构建前端:pnpm --filter @dag-pi/web build)', () => {
+describe.skipIf(!hasWebDist)('静态托管(需先构建前端:pnpm --filter @workflows/web build)', () => {
   it('首页返回 index.html', async () => {
     const res = await app.request('/')
 

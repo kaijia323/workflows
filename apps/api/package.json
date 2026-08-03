@@ -1,5 +1,5 @@
 {
-  "name": "@dag-pi/api",
+  "name": "@workflows/api",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -12,7 +12,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@dag-pi/shared": "workspace:*",
+    "@workflows/shared": "workspace:*",
     "@earendil-works/pi-ai": "^0.83.0",
     "@earendil-works/pi-coding-agent": "^0.83.0",
     "@hono/node-server": "^2.0.12",
