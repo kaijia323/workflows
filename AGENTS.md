@@ -20,7 +20,7 @@ Turborepo monorepo — 基于 **pi SDK** 的 Web Agent 工作台(聊天 + 工作
 - **数据隔离**:所有运行数据(API key / 工作区 / 会话)存 `.workflows/`,开发在仓库根、生产在 `~/.workflows`,**绝不读写 pi 全局配置 `~/.pi/agent`**
 - **会话模型**:一个工作区一个持久化会话(JSONL),上下文限定在工作区目录;只读工作区只给 `read/grep/find/ls` 工具
 - **流式输出**:`POST /api/agent/workspaces/:id/prompt` 走 SSE,事件类型见 shared 的 `SessionEvent`;前端按模型输出顺序渲染(思考/正文/工具调用交错)
-- **端口**:开发 web 15200(代理 `/api` → 3000),生产 api 5200 单端口托管前端 + API
+- **端口**:开发 web 15200(代理 `/api` → 3000),生产 api 5200 单端口托管前端 + API;dev 脚本用 `cross-env NODE_ENV=development` 固定环境(曾出现 shell 残留 `NODE_ENV=production` 导致 dev 抢 5200 端口 EADDRINUSE 崩溃——改 dev 脚本前先查 `echo $NODE_ENV`)
 - **API key**:用户手动输入 DeepSeek key,存 `.workflows/config.json`,运行时注入 `ModelRuntime`,key 本身不返回前端
 
 ## 命令
