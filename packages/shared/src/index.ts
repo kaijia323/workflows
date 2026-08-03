@@ -93,6 +93,25 @@ export interface SessionStatus {
 }
 
 /**
+ * 历史消息内容块(按模型输出顺序排列:思考 / 正文 / 工具调用交错出现)
+ */
+export type HistoryBlock =
+  | { type: 'thinking'; text: string }
+  | { type: 'text'; text: string }
+  | { type: 'tool'; callId: string; name: string; args: Record<string, unknown>; output?: string; isError?: boolean }
+
+/**
+ * 会话历史消息
+ */
+export interface HistoryItem {
+  id: string
+  role: 'user' | 'assistant'
+  blocks: HistoryBlock[]
+  usage?: SessionStatus['usage']
+  model?: string
+}
+
+/**
  * 会话事件(SSE 流)
  */
 export type SessionEvent =

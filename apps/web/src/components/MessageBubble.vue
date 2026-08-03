@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import type { UiMessage } from '../composables/useAgent'
-import { toolLabel } from '../composables/useAgent'
+import type { UiMessage, UiSegment } from '../composables/useAgent'
+import { messageText, toolLabel } from '../composables/useAgent'
 import { renderMarkdown } from '../utils/markdown'
 
 const props = defineProps<{ message: UiMessage }>()
@@ -10,17 +10,49 @@ const emit = defineEmits<{
   'toggle-tool': [message: UiMessage, callId: string]
 }>()
 
-const hasContent = computed(() => {
-  const m = props.message
-  return m.text.length > 0 || m.thinking.length > 0 || m.tools.length > 0
+/** 流式光标 HTML(模板内不便内联引号,提取为常量) */
+const CARET_HTML = '<span class="caret"></span>'
+
+/**
+ * 渲染计划:把 segments 按输出顺序转成可视块。
+ * 相邻的 text / thinking 片段合并(避免 markdown 被工具调用截断成半截),
+ * 流式时光标精确跟随最后一个 text 块。
+ */
+type PlanBlock =
+  | { key: string; kind: 'text' | 'thinking'; text: string; caret?: boolean }
+  | { key: string; kind: 'tool'; tool: Extract<UiSegment, { kind: 'tool' }> }
+
+const plan = computed<PlanBlock[]>(() => {
+  const out: PlanBlock[] = []
+  for (const seg of props.message.segments) {
+    if (seg.kind === 'text' || seg.kind === 'thinking') {
+      const last = out.at(-1)
+      if (last && last.kind === seg.kind) {
+        last.text += seg.text
+      } else {
+        out.push({ key: `${seg.kind}-${out.length}`, kind: seg.kind, text: seg.text })
+      }
+    } else {
+      out.push({ key: `tool-${seg.callId}`, kind: 'tool', tool: seg })
+    }
+  }
+  // 流式光标:跟随最后一个 text 块(与最后一次渲染的字符对齐)
+  if (props.message.status === 'streaming') {
+    for (let i = out.length - 1; i >= 0; i--) {
+      const block = out[i]
+      if (block.kind === 'text') {
+        block.caret = true
+        break
+      }
+    }
+  }
+  return out
 })
 
-/** 正文 HTML;流式时在末尾注入光标,精确跟随最后渲染的字符 */
-const bodyHtml = computed(() => {
-  let html = renderMarkdown(props.message.text)
-  if (props.message.status === 'streaming') html += '<span class="caret"></span>'
-  return html
-})
+/** 只有思考/工具、没有正文时,流式期间在底部显示光标 */
+const showCaretRow = computed(
+  () => props.message.status === 'streaming' && !plan.value.some((b) => b.kind === 'text'),
+)
 
 function formatTokens(n: number | undefined): string {
   if (n === undefined) return ''
@@ -38,12 +70,12 @@ function formatTokens(n: number | undefined): string {
     <div class="max-w-[85%] border border-signal/30 bg-signal/[0.05] px-3.5 py-2.5">
       <div
         class="md break-words text-[13px] leading-relaxed text-fg"
-        v-html="renderMarkdown(message.text)"
+        v-html="renderMarkdown(messageText(message))"
       />
     </div>
   </div>
 
-  <!-- 助手消息:节点卡 + 入边(端口) -->
+  <!-- 助手消息:节点卡 + 入边(端口)。内容严格按大模型输出顺序渲染:思考 / 正文 / 工具交错 -->
   <div
     v-else
     class="relative flex pl-7"
@@ -57,84 +89,93 @@ function formatTokens(n: number | undefined): string {
       class="min-w-0 max-w-full flex-1 border bg-raised/60 transition-colors"
       :class="message.status === 'error' ? 'border-err/40' : 'border-edge'"
     >
-      <!-- 思考区 -->
-      <div
-        v-if="message.thinking"
-        class="border-b border-edge/70"
-      >
-        <button
-          type="button"
-          class="flex w-full items-center gap-2 px-3.5 py-1.5 text-left font-mono text-[10px] tracking-wider text-wire transition hover:bg-wire/[0.06]"
-          @click="emit('toggle-thinking', message)"
+      <template v-if="plan.length > 0">
+        <template
+          v-for="(block, i) in plan"
+          :key="block.key"
         >
-          <span
-            class="inline-block w-3 text-center transition-transform duration-200"
-            :class="message.thinkingOpen ? 'rotate-90' : ''"
-          >▸</span>
-          <span class="text-wire/80">THINKING</span>
-          <span class="ml-auto font-mono text-[9px] text-faint">{{ message.thinking.length }} chars</span>
-        </button>
-        <pre
-          v-if="message.thinkingOpen"
-          class="max-h-64 overflow-y-auto whitespace-pre-wrap break-words px-3.5 pb-3 pl-8 font-mono text-[11px] leading-relaxed text-wire/70"
-        >{{ message.thinking }}</pre>
-      </div>
+          <!-- 思考片段 -->
+          <div
+            v-if="block.kind === 'thinking'"
+            class="border-t border-edge/70"
+            :class="i === 0 ? 'border-t-0' : ''"
+          >
+            <button
+              type="button"
+              class="flex w-full items-center gap-2 px-3.5 py-1.5 text-left font-mono text-[10px] tracking-wider text-wire transition hover:bg-wire/[0.06]"
+              @click="emit('toggle-thinking', message)"
+            >
+              <span
+                class="inline-block w-3 text-center transition-transform duration-200"
+                :class="message.thinkingOpen ? 'rotate-90' : ''"
+              >▸</span>
+              <span class="text-wire/80">THINKING</span>
+              <span class="ml-auto font-mono text-[9px] text-faint">{{ block.text.length }} chars</span>
+            </button>
+            <pre
+              v-if="message.thinkingOpen"
+              class="max-h-64 overflow-y-auto whitespace-pre-wrap break-words px-3.5 pb-3 pl-8 font-mono text-[11px] leading-relaxed text-wire/70"
+            >{{ block.text }}</pre>
+          </div>
 
-      <!-- 正文 -->
+          <!-- 正文片段 -->
+          <div
+            v-else-if="block.kind === 'text'"
+            class="px-3.5 py-3"
+            :class="i > 0 ? 'border-t border-edge/70' : ''"
+          >
+            <div
+              class="md break-words text-[13px] leading-relaxed text-fg"
+              v-html="renderMarkdown(block.text) + (block.caret ? CARET_HTML : '')"
+            />
+          </div>
+
+          <!-- 工具调用片段:按输出顺序穿插在思考 / 正文之间 -->
+          <div
+            v-else-if="block.kind === 'tool'"
+            class="border-t border-edge/70"
+          >
+            <button
+              type="button"
+              class="flex w-full items-center gap-2 px-3.5 py-1.5 text-left transition hover:bg-ink/40"
+              @click="emit('toggle-tool', message, block.tool.callId)"
+            >
+              <span
+                class="size-1.5 shrink-0 rounded-full"
+                :class="block.tool.isError ? 'bg-err' : 'bg-ok'"
+              />
+              <span class="font-display text-[10px] tracking-widest text-dim">{{ toolLabel(block.tool.name) }}</span>
+              <span class="truncate font-mono text-[10px] text-faint">{{ block.tool.name }}</span>
+              <span
+                class="ml-auto inline-block w-3 text-center font-mono text-[10px] text-faint transition-transform duration-200"
+                :class="block.tool.collapsed ? '' : 'rotate-90'"
+              >▸</span>
+            </button>
+            <pre
+              v-if="!block.tool.collapsed && block.tool.output"
+              class="max-h-56 overflow-y-auto whitespace-pre-wrap break-words border-t border-edge/40 bg-ink/60 px-3.5 py-2.5 pl-7 font-mono text-[10.5px] leading-relaxed"
+              :class="block.tool.isError ? 'text-err/90' : 'text-dim'"
+            >{{ block.tool.output }}</pre>
+          </div>
+        </template>
+      </template>
+
+      <!-- 只有思考 / 工具、尚无正文时,流式期间显示光标 -->
       <div
-        v-if="hasContent"
-        class="px-3.5 py-3"
-      >
-        <div
-          class="md break-words text-[13px] leading-relaxed text-fg"
-          v-html="bodyHtml"
-        />
-        <p
-          v-if="message.status === 'error' && message.errorText"
-          class="mt-2 font-mono text-[11px] text-err"
-        >
-          ⚠ {{ message.errorText }}
-        </p>
-      </div>
-      <div
-        v-else-if="message.status === 'streaming'"
+        v-else-if="showCaretRow"
         class="px-3.5 py-3"
       >
         <span class="caret" />
       </div>
 
-      <!-- 工具调用(边):每行一个工具 + 输出 -->
+      <!-- 错误 -->
       <div
-        v-if="message.tools.length > 0"
-        class="border-t border-edge/70"
+        v-if="message.status === 'error' && message.errorText"
+        class="border-t border-err/30 px-3.5 py-2"
       >
-        <div
-          v-for="tool in message.tools"
-          :key="tool.callId"
-          class="border-b border-edge/40 last:border-b-0"
-        >
-          <button
-            type="button"
-            class="flex w-full items-center gap-2 px-3.5 py-1.5 text-left transition hover:bg-ink/40"
-            @click="emit('toggle-tool', message, tool.callId)"
-          >
-            <span
-              class="size-1.5 shrink-0 rounded-full"
-              :class="tool.isError ? 'bg-err' : 'bg-ok'"
-            />
-            <span class="font-display text-[10px] tracking-widest text-dim">{{ toolLabel(tool.name) }}</span>
-            <span class="truncate font-mono text-[10px] text-faint">{{ tool.name }}</span>
-            <span
-              class="ml-auto inline-block w-3 text-center font-mono text-[10px] text-faint transition-transform duration-200"
-              :class="tool.collapsed ? '' : 'rotate-90'"
-            >▸</span>
-          </button>
-          <pre
-            v-if="!tool.collapsed && tool.output"
-            class="max-h-56 overflow-y-auto whitespace-pre-wrap break-words border-t border-edge/40 bg-ink/60 px-3.5 py-2.5 pl-7 font-mono text-[10.5px] leading-relaxed"
-            :class="tool.isError ? 'text-err/90' : 'text-dim'"
-          >{{ tool.output }}</pre>
-        </div>
+        <p class="font-mono text-[11px] text-err">
+          ⚠ {{ message.errorText }}
+        </p>
       </div>
 
       <!-- 页脚:模型 + token -->

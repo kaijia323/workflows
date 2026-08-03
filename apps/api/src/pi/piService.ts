@@ -10,6 +10,8 @@ import {
 } from '@earendil-works/pi-coding-agent'
 import type {
   AgentConfig,
+  HistoryBlock,
+  HistoryItem,
   SessionEvent,
   SessionStatus,
   Workspace,
@@ -26,16 +28,6 @@ import {
 
 const DEFAULT_MODEL = 'deepseek-v4-flash'
 const ALL_THINKING_LEVELS: ModelThinkingLevel[] = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']
-
-export interface HistoryItem {
-  id: string
-  role: 'user' | 'assistant'
-  text: string
-  thinking?: string
-  tools: Array<{ name: string; args: Record<string, unknown>; output?: string; isError?: boolean }>
-  usage?: SessionStatus['usage']
-  model?: string
-}
 
 interface SessionHandle {
   workspace: Workspace
@@ -325,35 +317,32 @@ function stringifyResult(result: unknown): string {
 
 /* ---------------- 历史渲染 ---------------- */
 
+/**
+ * 恢复会话历史。
+ * 与实时 SSE 一致:按 assistant 消息 content 数组的原始顺序输出 blocks,
+ * 思考 / 正文 / 工具调用交错排列,不按类型归纳。
+ */
 function renderHistory(session: AgentSession): HistoryItem[] {
   const items: HistoryItem[] = []
-  let lastAssistantIndex = -1
+  // toolResult 消息单独成条,按 toolCallId 挂到对应工具块上
   const lastToolOutput = new Map<string, { output?: string; isError?: boolean }>()
 
   for (const message of session.messages) {
     if (message.role === 'user') {
       const text = extractText(message.content)
       if (!text) continue
-      items.push({ id: `u${message.timestamp}`, role: 'user', text, tools: [] })
-      lastAssistantIndex = -1
+      items.push({
+        id: `u${message.timestamp}`,
+        role: 'user',
+        blocks: [{ type: 'text', text }],
+      })
     } else if (message.role === 'assistant') {
-      const thinking = extractThinking(message.content)
-      const text = extractText(message.content)
-      const tools = message.content
-        .filter((c): c is Extract<typeof c, { type: 'toolCall' }> => c.type === 'toolCall')
-        .map((call) => ({
-          name: call.name,
-          args: call.arguments as Record<string, unknown>,
-          output: lastToolOutput.get(call.id)?.output,
-          isError: lastToolOutput.get(call.id)?.isError,
-        }))
-      if (!text && !thinking && tools.length === 0) continue
+      const blocks = renderBlocks(message, lastToolOutput)
+      if (blocks.length === 0) continue
       items.push({
         id: `a${message.timestamp}`,
         role: 'assistant',
-        text,
-        thinking,
-        tools,
+        blocks,
         usage: {
           input: message.usage?.input ?? 0,
           output: message.usage?.output ?? 0,
@@ -364,23 +353,45 @@ function renderHistory(session: AgentSession): HistoryItem[] {
         },
         model: message.model,
       })
-      lastAssistantIndex = items.length - 1
     } else if (message.role === 'toolResult') {
       lastToolOutput.set(message.toolCallId, {
         output: extractText(message.content),
         isError: message.isError,
       })
-      if (lastAssistantIndex >= 0) {
-        const target = items[lastAssistantIndex]
-        const tool = target.tools.find((t) => t.name === message.toolName && t.output === undefined)
-        if (tool) {
-          tool.output = extractText(message.content)
-          tool.isError = message.isError
-        }
-      }
     }
   }
   return items
+}
+
+/** 按 content 数组顺序将消息渲染为块序列 */
+function renderBlocks(
+  message: { content: unknown },
+  lastToolOutput: Map<string, { output?: string; isError?: boolean }>,
+): HistoryBlock[] {
+  if (!Array.isArray(message.content)) return []
+  const blocks: HistoryBlock[] = []
+  for (const part of message.content) {
+    const type = (part as { type?: string }).type
+    if (type === 'thinking') {
+      const text = (part as { thinking: string }).thinking
+      if (text) blocks.push({ type: 'thinking', text })
+    } else if (type === 'text') {
+      const text = (part as { text: string }).text
+      if (text) blocks.push({ type: 'text', text })
+    } else if (type === 'toolCall') {
+      const call = part as { id: string; name: string; arguments: Record<string, unknown> }
+      const result = lastToolOutput.get(call.id)
+      blocks.push({
+        type: 'tool',
+        callId: call.id,
+        name: call.name,
+        args: call.arguments ?? {},
+        output: result?.output,
+        isError: result?.isError,
+      })
+    }
+  }
+  return blocks
 }
 
 function extractText(content: unknown): string {
@@ -390,13 +401,5 @@ function extractText(content: unknown): string {
     .filter((c) => c.type === 'text')
     .map((c) => (c as { text: string }).text)
     .join('')
-}
-
-function extractThinking(content: unknown): string | undefined {
-  if (!Array.isArray(content)) return undefined
-  const parts = content
-    .filter((c) => c.type === 'thinking')
-    .map((c) => (c as { thinking: string }).thinking)
-  return parts.length > 0 ? parts.join('\n') : undefined
 }
 

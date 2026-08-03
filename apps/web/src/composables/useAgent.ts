@@ -1,5 +1,5 @@
 import { computed, reactive, ref } from 'vue'
-import type { AgentConfig, SessionEvent, SessionStatus, Workspace } from '@dag-pi/shared'
+import type { AgentConfig, HistoryItem, SessionEvent, SessionStatus, Workspace } from '@dag-pi/shared'
 
 export interface UiToolRun {
   callId: string
@@ -9,17 +9,52 @@ export interface UiToolRun {
   collapsed: boolean
 }
 
+/**
+ * 消息内容片段,按模型输出顺序排列(思考 / 正文 / 工具调用交错)。
+ * 连续到达的同类型增量会合并到同一个片段。
+ */
+export type UiSegment =
+  | { kind: 'text'; text: string }
+  | { kind: 'thinking'; text: string }
+  | { kind: 'tool'; callId: string; name: string; output: string; isError: boolean; collapsed: boolean }
+
 export interface UiMessage {
   id: string
   role: 'user' | 'assistant'
-  text: string
-  thinking: string
+  /** 内容片段序列 = 大模型输出顺序,前端按此渲染 */
+  segments: UiSegment[]
+  /** 消息级开关:展开/折叠全部思考片段 */
   thinkingOpen: boolean
-  tools: UiToolRun[]
   usage?: SessionStatus['usage']
   model?: string
   status: 'streaming' | 'done' | 'error'
   errorText?: string
+}
+
+/** 聚合:正文全文(按片段顺序拼接) */
+export function messageText(m: UiMessage): string {
+  return m.segments
+    .filter((s): s is Extract<UiSegment, { kind: 'text' }> => s.kind === 'text')
+    .map((s) => s.text)
+    .join('')
+}
+
+/** 聚合:思考全文 */
+export function messageThinking(m: UiMessage): string {
+  return m.segments
+    .filter((s): s is Extract<UiSegment, { kind: 'thinking' }> => s.kind === 'thinking')
+    .map((s) => s.text)
+    .join('\n')
+}
+
+/** 是否有思考内容 */
+export function hasThinking(m: UiMessage): boolean {
+  return m.segments.some((s) => s.kind === 'thinking')
+}
+
+/** 查找工具片段 */
+export function findToolSegment(m: UiMessage, callId: string): Extract<UiSegment, { kind: 'tool' }> | undefined {
+  return m.segments.find((s): s is Extract<UiSegment, { kind: 'tool' }> => s.kind === 'tool' && s.callId === callId)
 }
 
 const TOOL_LABELS: Record<string, string> = {
@@ -127,16 +162,24 @@ export function useAgent() {
   async function openWorkspace(id: string): Promise<void> {
     if (activeWorkspaceId.value === id) return
     if (streaming.value) await abort()
-    const data = await request<{ history: UiMessage[]; status: SessionStatus }>(
+    const data = await request<{ history: HistoryItem[]; status: SessionStatus }>(
       `/api/agent/workspaces/${id}/open`,
       { method: 'POST' },
     )
     activeWorkspaceId.value = id
-    messages.value = data.history.map((m) => ({
-      ...m,
-      thinking: m.thinking ?? '',
+    toolRuns.value = []
+    messages.value = data.history.map((item) => ({
+      id: item.id,
+      role: item.role,
+      // 历史块按原顺序还原为片段,与实时流渲染一致
+      segments: item.blocks.map((block) =>
+        block.type === 'tool'
+          ? { kind: 'tool', callId: block.callId, name: block.name, output: block.output ?? '', isError: block.isError ?? false, collapsed: true }
+          : { kind: block.type, text: block.text },
+      ),
       thinkingOpen: false,
-      tools: (m.tools ?? []).map((t) => ({ ...t, collapsed: true })),
+      usage: item.usage,
+      model: item.model,
       status: 'done',
     }))
     status.value = data.status
@@ -166,12 +209,20 @@ export function useAgent() {
     messages.value.push({
       id: `u${Date.now()}`,
       role: 'user',
-      text,
-      thinking: '',
+      segments: [{ kind: 'text', text }],
       thinkingOpen: false,
-      tools: [],
       status: 'done',
     })
+  }
+
+  /** 向最后一个片段追加增量;若最后一个片段类型不同,则新开一个片段 */
+  function appendSegment(pending: UiMessage, seg: UiSegment): void {
+    const last = pending.segments.at(-1)
+    if (last && last.kind === seg.kind && seg.kind !== 'tool') {
+      ;(last as Extract<UiSegment, { kind: 'text' | 'thinking' }>).text += (seg as { text: string }).text
+    } else {
+      pending.segments.push(seg)
+    }
   }
 
   function ensurePending(): UiMessage {
@@ -182,10 +233,8 @@ export function useAgent() {
       pending = reactive<UiMessage>({
         id: `a${Date.now()}`,
         role: 'assistant',
-        text: '',
-        thinking: '',
+        segments: [],
         thinkingOpen: false,
-        tools: [],
         status: 'streaming',
       })
       messages.value.push(pending)
@@ -195,18 +244,19 @@ export function useAgent() {
 
   function handleEvent(event: SessionEvent): void {
     switch (event.type) {
-      case 'message_start':
-        if (event.role === 'user') pushUserMessage(`[已发送] ${Date.now()}`)
-        break
+      // 注意:不处理 message_start。用户消息已在 sendMessage() 中即时推送,
+      // 若这里再按 SSE 回传的 message_start(含 user 角色)push 一条,
+      // 会导致用户消息重复、并在真实消息与回复之间插入一条占位垃圾消息。
       case 'text_delta':
-        ensurePending().text += event.delta
+        appendSegment(ensurePending(), { kind: 'text', text: event.delta })
         break
       case 'thinking_delta':
-        ensurePending().thinking += event.delta
+        appendSegment(ensurePending(), { kind: 'thinking', text: event.delta })
         break
       case 'tool_start':
         toolRuns.value.push({ ts: Date.now(), name: event.toolName, callId: event.callId, isError: false })
-        ensurePending().tools.push({
+        ensurePending().segments.push({
+          kind: 'tool',
           callId: event.callId,
           name: event.toolName,
           output: '',
@@ -215,14 +265,14 @@ export function useAgent() {
         })
         break
       case 'tool_update': {
-        const tool = ensurePending().tools.find((t) => t.callId === event.callId)
+        const tool = findToolSegment(ensurePending(), event.callId)
         if (tool) tool.output += event.delta
         break
       }
       case 'tool_end': {
         const run = toolRuns.value.find((r) => r.callId === event.callId)
         if (run) run.isError = event.isError
-        const tool = ensurePending().tools.find((t) => t.callId === event.callId)
+        const tool = findToolSegment(ensurePending(), event.callId)
         if (tool) {
           tool.output = event.output
           tool.isError = event.isError

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { nextTick, onMounted, ref, watch } from 'vue'
 import type { AgentStore, UiMessage } from '../composables/useAgent'
+import { findToolSegment, hasThinking, messageText } from '../composables/useAgent'
 import MessageBubble from './MessageBubble.vue'
 
 /**
@@ -30,7 +31,7 @@ async function scrollToBottom(smooth = false) {
 }
 
 watch(
-  () => [props.agent.messages.value.length, props.agent.messages.value.at(-1)?.text.length],
+  () => [props.agent.messages.value.length, props.agent.messages.value.at(-1) ? messageText(props.agent.messages.value.at(-1)!) : 0],
   async () => {
     if (stickToBottom.value) {
       await nextTick()
@@ -66,7 +67,7 @@ function toggleThinking(message: { thinkingOpen: boolean }) {
 }
 
 function toggleTool(message: UiMessage, callId: string) {
-  const tool = message.tools.find((t) => t.callId === callId)
+  const tool = findToolSegment(message, callId)
   if (tool) tool.collapsed = !tool.collapsed
 }
 </script>
@@ -234,13 +235,13 @@ function toggleTool(message: UiMessage, callId: string) {
 
         <!-- 折叠/展开全部 thinking 的快捷操作 -->
         <div
-          v-if="agent.messages.value.some((m) => m.thinking)"
+          v-if="agent.messages.value.some(hasThinking)"
           class="ml-auto flex gap-1"
         >
           <button
             type="button"
             class="border border-edge px-2 py-1 font-mono text-[9px] text-faint transition hover:text-fg"
-            @click="agent.messages.value.filter((m) => m.thinking).forEach(toggleThinking)"
+            @click="agent.messages.value.filter(hasThinking).forEach(toggleThinking)"
           >
             THINKING ⇅
           </button>

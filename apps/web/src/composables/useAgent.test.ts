@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { watch } from 'vue'
-import { useAgent } from './useAgent'
+import { messageText, useAgent } from './useAgent'
 
 const encoder = new TextEncoder()
 
@@ -81,7 +81,10 @@ describe('useAgent 流式渲染', () => {
     // 记录每个触发时刻 assistant 文本的可见值
     const snapshots: string[] = []
     const stop = watch(
-      () => agent.messages.value.at(-1)?.text ?? '',
+      () => {
+        const last = agent.messages.value.at(-1)
+        return last ? messageText(last) : ''
+      },
       (text) => snapshots.push(text),
       { flush: 'sync' },
     )
@@ -93,7 +96,108 @@ describe('useAgent 流式渲染', () => {
     // (而非只在流结束后一次性出现)
     expect(snapshots).toEqual(['hi', '', '你', '你好'])
     const last = agent.messages.value.at(-1)
-    expect(last?.text).toBe('你好')
+    expect(messageText(last!)).toBe('你好')
     expect(last?.status).toBe('done')
+  })
+
+  it('SSE 回传的 message_start(user) 不重复推送用户消息(回归:输出顺序错乱)', async () => {
+    // 模拟真实后端:session.prompt 会先触发 user 角色的 message_start,再进入 agent 事件
+    const stream = sseStream([
+      'data: {"type":"message_start","role":"user","id":"u-1"}\n\n',
+      'data: {"type":"agent_start"}\n\n',
+      'data: {"type":"text_delta","delta":"好的"}\n\n',
+      'data: {"type":"agent_end"}\n\n',
+      'data: {"type":"done"}\n\n',
+    ])
+    stubApi(stream)
+
+    const agent = useAgent()
+    await agent.init()
+    await agent.openWorkspace('ws-1')
+    await agent.sendMessage('帮我看看')
+
+    const messages = agent.messages.value
+    // 顺序:用户消息(真实文本)→ assistant 回复,中间不得出现 "[已发送]" 占位消息
+    expect(messages.map((m) => [m.role, messageText(m)])).toEqual([
+      ['user', '帮我看看'],
+      ['assistant', '好的'],
+    ])
+  })
+
+  it('片段按大模型输出顺序保存:思考 → 正文 → 工具 → 正文(回归:类型归纳导致顺序错乱)', async () => {
+    // 交错事件流:思考一段 → 输出开头正文 → 调用工具 → 工具结果 → 继续输出正文
+    const events: Array<Record<string, unknown>> = [
+      { type: 'agent_start' },
+      { type: 'thinking_delta', delta: '先分析' },
+      { type: 'thinking_delta', delta: '一下' },
+      { type: 'text_delta', delta: '我来看看' },
+      { type: 'tool_start', toolName: 'read', callId: 'c1' },
+      { type: 'tool_update', callId: 'c1', delta: '{}' },
+      { type: 'tool_end', callId: 'c1', toolName: 'read', isError: false, output: '{"ok":true}' },
+      { type: 'text_delta', delta: ',文件正常' },
+      { type: 'agent_end' },
+      { type: 'done' },
+    ]
+    // 用 JSON.stringify 生成 SSE 数据,避免手写转义出非法 JSON
+    const stream = sseStream(events.map((e) => `data: ${JSON.stringify(e)}\n\n`))
+    stubApi(stream)
+
+    const agent = useAgent()
+    await agent.init()
+    await agent.openWorkspace('ws-1')
+    await agent.sendMessage('读一下文件')
+
+    const last = agent.messages.value.at(-1)
+    expect(last?.segments.map((s) => s.kind)).toEqual(['thinking', 'text', 'tool', 'text'])
+    // 连续 thinking 增量合并,正文被工具调用隔开成两段
+    expect(last?.segments[0]).toMatchObject({ kind: 'thinking', text: '先分析一下' })
+    expect(last?.segments[1]).toMatchObject({ kind: 'text', text: '我来看看' })
+    expect(last?.segments[2]).toMatchObject({ kind: 'tool', callId: 'c1', name: 'read', output: '{"ok":true}', isError: false })
+    expect(last?.segments[3]).toMatchObject({ kind: 'text', text: ',文件正常' })
+  })
+
+  it('历史恢复时按 blocks 原始顺序还原片段', async () => {
+    const stream = new ReadableStream<Uint8Array>({
+      async start(controller) {
+        controller.close()
+      },
+    })
+    stubApi(stream)
+    // open 接口返回带顺序的历史块:思考 → 工具 → 正文(工具调用夹在中间)
+    vi.mocked(fetch).mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url === '/api/agent/config') {
+        return jsonResponse({ hasApiKey: true, model: 'deepseek-v4-flash', thinkingLevel: 'off', models: [], thinkingLevels: ['off'] })
+      }
+      if (url === '/api/agent/workspaces') {
+        return jsonResponse([{ id: 'ws-1', path: '/x', name: 'x', readOnly: false, createdAt: 0 }])
+      }
+      if (url.endsWith('/ws-1/open')) {
+        return jsonResponse({
+          history: [
+            { id: 'u1', role: 'user', blocks: [{ type: 'text', text: '改一下' }] },
+            {
+              id: 'a1',
+              role: 'assistant',
+              blocks: [
+                { type: 'thinking', text: '先看代码' },
+                { type: 'tool', callId: 'c1', name: 'grep', args: {}, output: 'found', isError: false },
+                { type: 'text', text: '完成了' },
+              ],
+            },
+          ],
+          status: { workspaceId: 'ws-1', model: 'deepseek-v4-flash', thinkingLevel: 'off', messageCount: 2, streaming: false, lastActivityAt: null },
+        })
+      }
+      return jsonResponse({ workspaceId: 'ws-1', model: 'deepseek-v4-flash', thinkingLevel: 'off', messageCount: 0, streaming: false, lastActivityAt: null })
+    })
+
+    const agent = useAgent()
+    await agent.init()
+    await agent.openWorkspace('ws-1')
+
+    const assistant = agent.messages.value[1]
+    expect(assistant.segments.map((s) => s.kind)).toEqual(['thinking', 'tool', 'text'])
+    expect(assistant.segments[1]).toMatchObject({ kind: 'tool', callId: 'c1', name: 'grep', output: 'found', collapsed: true })
   })
 })
