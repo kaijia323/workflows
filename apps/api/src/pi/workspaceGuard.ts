@@ -38,6 +38,26 @@ const FILE_PATH_COMMANDS = new Set([
   'du', 'cpio', 'rsync', 'scp', 'vi', 'vim', 'nano', 'mount', 'umount', 'source', '.', 'ls',
 ])
 
+/**
+ * bash 中禁用的搜索命令:强制 agent 使用 fff-find / fff-grep 工具
+ * (fff 为工作区维护常驻索引,毫秒级;子进程搜索每次调用都付冷启动成本)
+ */
+const DISABLED_SEARCH_COMMANDS: ReadonlyMap<string, string> = new Map([
+  ['find', '文件搜索已禁用,请使用 fff-find 工具'],
+  ['rg', '全文搜索已禁用,请使用 fff-grep 工具'],
+  ['fd', '文件搜索已禁用,请使用 fff-find 工具'],
+  ['fzf', '文件搜索已禁用,请使用 fff-find 工具'],
+])
+
+/** grep 仅禁用递归形态(-r/-R/--recursive);单文件 grep 与管道过滤(git diff | grep)合法 */
+const GREP_RECURSIVE_FLAGS = new Set(['-r', '-R', '--recursive', '--recurse'])
+
+/** 组合短标志(-rn / -rin / -nr 等)也视为递归 */
+function isRecursiveGrepFlag(flag: string): boolean {
+  if (GREP_RECURSIVE_FLAGS.has(flag)) return true
+  return /^-[a-zA-Z]*r[a-zA-Z]*$/.test(flag)
+}
+
 /** 参数即目录的命令(所有参数都是路径) */
 const CD_COMMANDS = new Set(['cd', 'pushd', 'popd'])
 
@@ -235,6 +255,19 @@ function auditCommand(
       target: `无法静态确定命令名「${command.name.text}」,拒绝执行`,
     })
     return
+  }
+
+  // 禁用搜索命令:find/rg/fd 无条件;grep 仅递归形态
+  if (DISABLED_SEARCH_COMMANDS.has(nameText)) {
+    violations.push({ source: '命令', target: DISABLED_SEARCH_COMMANDS.get(nameText)! })
+    return
+  }
+  if (nameText === 'grep') {
+    const hasRecursive = command.suffix.some((arg) => isRecursiveGrepFlag(arg.text))
+    if (hasRecursive) {
+      violations.push({ source: 'grep 参数', target: '递归搜索(-r/-R)已禁用,请使用 fff-grep 工具' })
+      return
+    }
   }
 
   // 参数路径检查

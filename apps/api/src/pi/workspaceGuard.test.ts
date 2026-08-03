@@ -111,9 +111,17 @@ describe('auditBashCommand:放行场景', () => {
     expect(auditBashCommand('cat <<EOF\nbody\nEOF', WS)).toEqual([])
     expect(auditBashCommand('rm -rf node_modules dist', WS)).toEqual([])
     expect(auditBashCommand('cd apps && ls', WS)).toEqual([])
-    expect(auditBashCommand('grep -rn "TODO" src', WS)).toEqual([])
     expect(auditBashCommand('FOO=bar echo $FOO', WS)).toEqual([])
     expect(auditBashCommand('git diff src/index.ts', WS)).toEqual([])
+  })
+
+  it('单文件 grep 与管道过滤放行(仅递归形态禁用)', () => {
+    expect(auditBashCommand('grep -n TODO src/index.ts', WS)).toEqual([])
+    expect(auditBashCommand('grep TODO file.txt', WS)).toEqual([])
+    expect(auditBashCommand('cat src/index.ts | grep TODO', WS)).toEqual([])
+    expect(auditBashCommand('ps aux | grep node', WS)).toEqual([])
+    expect(auditBashCommand('git diff | grep -n "^+import"', WS)).toEqual([])
+    expect(auditBashCommand('npm ls | grep lodash', WS)).toEqual([])
   })
 })
 
@@ -181,6 +189,37 @@ describe('auditBashCommand:拦截场景', () => {
   it('dd 的 if=/of= 形式(源越界拦截,合法源放行)', () => {
     expect(auditBashCommand('dd if=/etc/passwd of=out.bin bs=1M count=1', WS).length).toBeGreaterThan(0)
     expect(auditBashCommand('dd if=/dev/urandom of=/tmp/rnd.bin bs=1M count=1', WS)).toEqual([])
+  })
+})
+
+describe('auditBashCommand:搜索命令禁用', () => {
+  it('find/rg/fd/fzf 无条件拦截,并指引 fff 工具', () => {
+    for (const cmd of [
+      'find . -name "*.ts"',
+      'find src -type f',
+      'rg "TODO" .',
+      'rg -n TODO src',
+      'fd "*.ts"',
+      'fd -e ts .',
+      'fzf',
+    ]) {
+      const violations = auditBashCommand(cmd, WS)
+      expect(violations.length, cmd).toBeGreaterThan(0)
+      expect(violations[0].target, cmd).toMatch(/fff-(find|grep)/)
+    }
+  })
+
+  it('grep 递归形态(-r/-R/--recursive)拦截,指引 fff-grep', () => {
+    for (const cmd of ['grep -r TODO .', 'grep -R TODO src', 'grep --recursive TODO .', 'grep -rn "TODO" src', 'grep -rin todo .']) {
+      const violations = auditBashCommand(cmd, WS)
+      expect(violations.length, cmd).toBeGreaterThan(0)
+      expect(violations[0].target, cmd).toMatch(/fff-grep/)
+    }
+  })
+
+  it('禁用命令不做路径审计(直接拒绝)', () => {
+    expect(auditBashCommand('find . -name x | head', WS).length).toBeGreaterThan(0)
+    expect(auditBashCommand('rg TODO src > out.txt', WS).length).toBeGreaterThan(0)
   })
 })
 
