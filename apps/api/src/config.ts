@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
@@ -152,7 +152,7 @@ function isDirectory(dir: string): boolean {
 }
 
 /* ---------------- workspace-sessions.json ---------------- */
-// workspaceId → 会话状态(一个工作区多个持久化会话,JSONL 均落在 agentDir/sessions)
+// workspaceId → 会话状态(一个工作区多个持久化会话,JSONL 按工作区隔离在 agentDir/sessions/<workspaceId>/)
 // 旧格式(单会话:workspaceId → 文件路径)在读取时自动迁移
 
 export interface StoredSessionMeta {
@@ -225,6 +225,45 @@ export function getActiveSession(store: DagPiStore, workspaceId: string): Stored
 /** 指定会话(不存在返回 undefined) */
 export function getSession(store: DagPiStore, workspaceId: string, sessionId: string): StoredSessionMeta | undefined {
   return loadSessionsFile(store)[workspaceId]?.sessions[sessionId]
+}
+
+/** 工作区会话目录:sessions/<workspaceId>/,每个工作区独立子目录,与 pi SDK 默认按 cwd 编码隔离的精神一致 */
+export function sessionDirFor(store: DagPiStore, workspaceId: string): string {
+  const dir = path.join(store.agentDir, 'sessions', workspaceId)
+  ensureDir(dir)
+  return dir
+}
+
+/**
+ * 迁移旧版平铺会话布局(所有 JSONL 直接落在 agentDir/sessions/)
+ * → 按工作区隔离(sessions/<workspaceId>/)。移动文件并回写 sessionFile 引用。
+ * 返回实际移动的文件数。
+ */
+export function migrateSessionsLayout(store: DagPiStore): number {
+  const file = loadSessionsFile(store)
+  let moved = 0
+  for (const [workspaceId, state] of Object.entries(file)) {
+    const targetDir = sessionDirFor(store, workspaceId)
+    for (const meta of Object.values(state.sessions)) {
+      if (!meta.sessionFile) continue
+      const oldFile = meta.sessionFile
+      const newFile = path.join(targetDir, path.basename(oldFile))
+      const already = path.dirname(oldFile) === targetDir
+      if (!already && existsSync(oldFile) && !existsSync(newFile)) {
+        renameSync(oldFile, newFile)
+        moved++
+      }
+      if (existsSync(newFile)) {
+        // 旧文件缺失但目标已就位(或已移动成功)→ 修正引用即可
+        if (!already) meta.sessionFile = newFile
+      } else if (!existsSync(oldFile)) {
+        // 源与目标均不存在(引用失效)→ 置空,待会话创建时回填
+        meta.sessionFile = ''
+      }
+    }
+  }
+  saveSessionsFile(store, file)
+  return moved
 }
 
 /** 会话文件路径(条目缺失或文件已删除返回 undefined) */

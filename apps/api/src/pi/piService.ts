@@ -25,9 +25,11 @@ import {
   hasApiKey,
   listSessions,
   loadConfig,
+  migrateSessionsLayout,
   mutateSessions,
   removeSession,
   removeWorkspaceSessions,
+  sessionDirFor,
   sessionFileFor,
   setApiKey,
   updateSessionMeta,
@@ -66,6 +68,8 @@ export class PiAgentService {
 
   static async create(): Promise<PiAgentService> {
     const store = createStore()
+    // 旧版平铺会话文件 → sessions/<workspaceId>/ 子目录迁移
+    migrateSessionsLayout(store)
     const runtime = await ModelRuntime.create({
       authPath: path.join(store.agentDir, 'auth.json'),
       modelsPath: path.join(store.agentDir, 'models.json'),
@@ -163,7 +167,9 @@ export class PiAgentService {
 
     const stored = loadConfig(this.store)
     const model = this.runtime.getModel('deepseek', stored.model ?? DEFAULT_MODEL) ?? undefined
-    const sessionDir = path.join(this.store.agentDir, 'sessions')
+    // 会话文件按工作区隔离在 .dag-pi/agent/sessions/<workspaceId>/ 下,
+    // 绝不写入用户全局 ~/.pi/agent/sessions
+    const sessionDir = sessionDirFor(this.store, workspace.id)
     const sessionFile = targetId ? sessionFileFor(this.store, workspace.id, targetId) : undefined
     const sessionManager = sessionFile
       ? SessionManager.open(sessionFile)
@@ -271,6 +277,8 @@ export class PiAgentService {
     for (const meta of removeWorkspaceSessions(this.store, workspace.id)) {
       if (meta.sessionFile) rmSync(meta.sessionFile, { force: true })
     }
+    // 清理工作区目录(空目录才删;若残留孤儿文件则保留)
+    rmSync(sessionDirFor(this.store, workspace.id), { force: true })
   }
 
   /** 会话列表(当前打开的会话消息数实时回写) */
