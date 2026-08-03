@@ -1,0 +1,45 @@
+{
+  "runId": "d06adb0f",
+  "sessionId": "7c7c35fe-6c2c-4cc0-9699-06b2645edfee",
+  "status": "done",
+  "gate": {
+    "pending": false,
+    "planFile": ".wf-runs\\d06adb0f\\02-plan.md"
+  },
+  "createdAt": 1785780241532,
+  "updatedAt": 1785781392920,
+  "agents": [
+    {
+      "callId": "call_00_BMyqm0JVD3fdN60e954y8499",
+      "agent": "explorer",
+      "summary": "探索完成,报告已写入 `.wf-runs/d06adb0f/01-exploration.md`。摘要如下:\n\n## 摘要\n\n**1. 目录结构(实测)**:`.wf-runs/<runId>/` = `run.json`(状态机 + agents[] 调用记录)+ 若干 `NN-role.md` 黑板产物。`46569220/` 现有 `01-exploration.md`、`03-execution.md`、`04-review.md`(无 02-plan.md,该 run 未走 planner);`d06adb0f/` 当前仅 `run.json`。子代理会话 JSONL 不在 `.wf-runs`,而在 `.workflows/agent/sessions/<workspaceId>/sub/<runId>/`(gitignored)。\n\n**2. 命名规则**:不存在 `sub_explorer_xxx.md`。是**角色→固定文件名**的两段式映射(`subAgent.ts:45` `ROLE_ARTIFACT`):explorer→`01-exploration.md`、planner→`02-plan.md`、executor→`03-execution.md`、reviewer→`04-review.md`。无时间戳/序号;文件名同时写死在 agents/*.md 的 write 白名单里,子代理只能写这些固定路径。\n\n**3. 覆盖根因(两层叠加,非命名冲突)**:\n- ① run 归并:`piService.ts` `ensureRun()` 用 `handle.run ?? resolveCurrentRun(...)`,`handle.run` 是内存态且回合结束后**从不置空**(仅 status 置 done)→ 同一会话后续任务永远复用同一 runId。实测 run `46569220` 装了两个任务共 7 次调用,全部同一 runId,后一任务覆盖前一任务产物。\n- ② 固定文件名:同 run 内同名角色多次调用(如 explorer 调 2 次、executor⇄reviewer 多轮)后写覆盖前写——这是设计文档 dag-workflow.md §5.2 **有意为之**(「多轮覆盖最新,历史由 git 兜底」)。JSONL 会话文件因含时间戳+uuidv7 从不碰撞,覆盖只发生在 md 黑板产物。\n\n**4. pi 源码位置**:`.wf-runs` **不是 pi 内核功能**(pi 的 CHANGELOG/docs 无此概念),是本仓库自己实现。pi SDK 只提供会话文件名生成:`dist/core/session-manager.js` 的 `newSession()`(`timestamp.replace(/[:.]/g,'-') + '_' + uuidv7 + '.jsonl'`,对应文档 session-format.md「`<timestamp>_<uuid>.jsonl`」)。\n\n**5. 配置项**:无。产物命名硬编码在 `ROLE_ARTIFACT`;`PI_CODING_AGENT_DIR/PI_CODING_AGENT_SESSION_DIR` 只影响会话存储目录;`.workflows/config.json` 仅 apiKey/model/thinkingLevel。\n\n**解决方案**(报告中详列):① 最小修复——回合结束时 `handle.run = null`,让 done 的 run 不再被复用,新任务自动开新 runId(1 行级,符合设计原意);② 产物文件名加序号/时间戳(需同步改 4 个 agents/*.md 白名单 + detectArtifact);③ 按 callId 建子目录隔离;④ prompt 约定层(不可靠,不推荐)。",
+      "artifact": ".wf-runs\\d06adb0f\\01-exploration.md",
+      "sessionFile": "sessions\\857395d8-e02b-4b8c-9b07-5144bbf849cd\\sub\\d06adb0f\\2026-08-03T18-04-01-534Z_019fc8cc-047e-7330-8809-e4e2678340fa.jsonl",
+      "ts": 1785780430150
+    },
+    {
+      "callId": "call_00_T0ZSl4UbBu0OoZkfhSwH9650",
+      "agent": "planner",
+      "summary": "实施计划已写入 `.wf-runs/d06adb0f/02-plan.md`。摘要如下:\n\n## 计划摘要\n\n**核心设计(经源码核实)**\n\n- **方案 A(回合释放 run)**:`piService.ts` 的 `prompt()` finally 块 `saveRun` 后追加 `if (run.status === 'done') handle.run = null`(awaiting_approval 不置空,闸门续跑仍归并);并**必须配套**修改 `getRunSnapshot()`——现逻辑会把磁盘 done run 回填进 handle,不修则方案 A 失效(已核实 641 行)。\n- **方案 B(文件名去重)**:采用「`NN-role-N.md` 从 1 起」方案,白名单只留 `.wf-runs/*/NN-role-*.md`(旧名结构性不可写,杜绝模型写旧名覆盖);服务端在 `runSubAgent` 调用前按 `run.agents` 同角色计数算序号,注入「产物文件:」指令;`detectArtifact` 改为「预期名精确命中 → 前缀扫描取最新 mtime」,`detectPlanFile`(现硬编码 `02-plan.md`)同步改前缀扫描。\n\n**改动文件(9 个)**:`subAgent.ts`(命名/注入/检测)、`piService.ts`(方案 A 两处 + detectPlanFile)、`agents/{explorer,planner,executor,reviewer}.md`(白名单 + 正文文件名引用)、`agentDefs.test.ts`(72 行断言对新 glob 失效,必须同步改)、`subAgent.test.ts`(新增命名/检测单测)、`docs/dag-workflow.md`(文档同步)。\n\n**明确不改**:`runManager.ts`(collectArtifacts 已支持多产物)、`agentDefs.ts`(glob 机制)、orchestrator.md、shared 类型、前端(产物为字符串透传)、旧 run 目录(只保证不被触碰)。\n\n**关键风险**:中断回合语义变化(对齐 docs §5.1 原意);模型写旧名被白名单拦截(靠注入指令 + 正文去旧名缓解);`agentDefs.test.ts` 断言必须同步。\n\n**验收**:`pnpm test/typecheck/build` 全绿;手动 E2E——同一会话两条任务产生两个 runId 且首 run 零改动、同 run 审查循环出现 `04-review-1/2.md` 且 sha256 互异、闸门批准后仍归并同 runId、旧 run 目录 `git status` 零改动。",
+      "artifact": ".wf-runs\\d06adb0f\\02-plan.md",
+      "sessionFile": "sessions\\857395d8-e02b-4b8c-9b07-5144bbf849cd\\sub\\d06adb0f\\2026-08-03T18-10-06-322Z_019fc8d1-9572-7934-b42f-68c04a3dd5bf.jsonl",
+      "ts": 1785780824300
+    },
+    {
+      "callId": "call_00_pZ40WhYq1MMhNZcp8mBp3833",
+      "agent": "executor",
+      "summary": "## 执行摘要\n\n**方案 A(回合释放 run)+ 方案 B(NN-role-N 命名)已按计划实施完毕,9 个文件全部改动,无越界。**\n\n### 改动文件与关键改动\n\n| 文件 | 关键改动 |\n| --- | --- |\n| `apps/api/src/pi/subAgent.ts` | 新增导出 `nextArtifactName`(按 run.agents 同角色计数 +1 生成 `NN-role-N.md`,含失败调用,未知角色 null);`runSubAgent` 调用前计算并注入「产物文件:.wf-runs/<runId>/<NN-role-N.md>」权威指令;`detectArtifact` 改为「预期名精确命中 → 内置角色前缀扫描取最新 mtime → 自定义代理原逻辑回退」;新增 `newestArtifactInRunDir`(mtimeMs+文件名双键降序);import 补 `readdirSync/statSync` |\n| `apps/api/src/pi/piService.ts` | finally 块 `saveRun` 后追加 `if (run.status === 'done') handle.run = null`(awaiting_approval 不置空);`getRunSnapshot` 回填加 `status !== 'done'` 防护;`detectPlanFile` 由硬编码 `02-plan.md` 改为前缀扫描最新 `02-plan*.md` |\n| `agents/explorer|planner|reviewer.md` | write 白名单 `NN-role.md` → `NN-role-*.md`(旧名结构性不可写);正文文件名引用全部改为「任务说明指定的产物文件」/「最新的 XX(NN-role-*.md)」 |\n| `agents/executor.md` | write `**` 不变;正文「先读 02-plan.md」→「最新的计划文件(02-plan-*.md)」、「03-execution.md」→「任务指定产物文件」 |\n| `agentDefs.test.ts` | 72 行断言改为前缀判断 + `-*.md` 断言;新增新模式 glob 用例(命中序号文件、拒绝旧名) |\n| `subAgent.test.ts` | 新增 `nextArtifactName` 5 例 + `detectArtifact` 5 例(精确命中/旧名容错/最新 mtime/空目录/自定义回退) |\n| `docs/dag-workflow.md` | §3.2/§3.3/§4 命名示例与表格改 `NN-role-*.md`;§5.1 补 run 释放语义;§5.2 目录树改 `NN-role-N.md` + 命名规则;§6 事件示例改 `01-exploration-1.md` |\n\n### 自检结果(全绿)\n- **pnpm test**:7 个测试文件 **103/103 通过**\n- **pnpm typecheck**:3/3 任务无错误\n- **pnpm build**:3/3 成功,copy-agents 确认 dist 含新白名单\n\n### 一致性自查\n命名注入(序号从 1 起、含失败计数)→ 白名单(`-*.md` 字面 `-` 使旧名不可写)→ 检测(精确→前缀扫描→自定义回退)→ 置空(done 释放、awaiting_approval 归并)→ 快照回填防护(done 不回填),五环一致。执行报告已写入 `.wf-runs/d06adb0f/03-execution.md`。\n\n**备注**:`git status` 中 `.wf-runs/46569220/run.json` 的 `updatedAt` 变更(02:03)早于本次执行开始(02:16),是探索阶段的既有状态,非本任务改动所致;旧 run 目录未被触碰。",
+      "artifact": ".wf-runs\\d06adb0f\\03-execution.md",
+      "sessionFile": "sessions\\857395d8-e02b-4b8c-9b07-5144bbf849cd\\sub\\d06adb0f\\2026-08-03T18-14-48-127Z_019fc8d5-e23f-7474-830d-2b31be908231.jsonl",
+      "ts": 1785781122511
+    },
+    {
+      "callId": "call_00_08bfxTAJ6QJi3upwb2ne5071",
+      "agent": "reviewer",
+      "summary": "审查完成,结论 **pass**。报告已写入 `.wf-runs/d06adb0f/04-review.md`。\n\n摘要:\n- **方案 A 生效**:`piService.ts:621` finally 块 done 时 `handle.run = null`(awaiting_approval 不置空);`getRunSnapshot` 回填加 `status !== 'done'` 防护,磁盘 done run 不会被重新挂回 handle。\n- **方案 B 闭环成立**:`nextArtifactName` 按 run.agents 同角色计数+1(失败调用计入)、注入「产物文件:」指令、白名单 `-*.md` 严格匹配序号名且旧名结构性不可写(单测验证)、detectArtifact 精确→前缀扫描→自定义回退、detectPlanFile 前缀扫描,五环自洽。\n- **无越界**:仅计划 9 个文件;orchestrator.md/agentDefs.ts/runManager.ts/shared/前端/.gitignore 均未动;dist 构建产物实测含新白名单;旧 run 目录未触碰。\n- **非阻断问题 4 条**:① detectArtifact 兜底可能把上一轮产物误记为当前调用 artifact(建议排除已认领路径);② `-*.md` 空序号理论上可写;③ 计划 §6.2 手动 E2E 未执行(仅静态+单测支撑);④ docs §8 崩溃续跑措辞与释放语义轻微张力。\n- 审查环境无 shell,test/typecheck/build 未能复跑,以静态核对 + 执行报告声明为准。\n\n最终建议:**通过**(附上述改进建议)。",
+      "artifact": ".wf-runs\\d06adb0f\\04-review.md",
+      "sessionFile": "sessions\\857395d8-e02b-4b8c-9b07-5144bbf849cd\\sub\\d06adb0f\\2026-08-03T18-18-48-111Z_019fc8d9-8baf-7f33-92ba-d39ffe9b26c6.jsonl",
+      "ts": 1785781387284
+    }
+  ]
+}
