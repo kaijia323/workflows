@@ -329,8 +329,10 @@ export class PiAgentService {
 
   /* ---------------- 工作流编排:子代理工具 ---------------- */
 
-  /** 确保存在可用的 run:进行中归并,否则新建 */
-  private ensureRun(handle: SessionHandle): RunFile {
+  /** 确保存在可用的 run:进行中归并;create=true(默认)时未命中则新建,false 时不新建并返回 null */
+  private ensureRun(handle: SessionHandle): RunFile
+  private ensureRun(handle: SessionHandle, create: false): RunFile | null
+  private ensureRun(handle: SessionHandle, create = true): RunFile | null {
     const workspace = handle.workspace
     const currentId = handle.run?.runId ?? null
     // done 即终态:已完成的 run 不再内存归并(走 resolveCurrentRun 的 done 排除 / createRun 新建)
@@ -342,6 +344,7 @@ export class PiAgentService {
       handle.run = run
       return run
     }
+    if (!create) return null
     const created = createRun(workspace.path, handle.sessionId)
     handle.run = created
     return created
@@ -463,7 +466,14 @@ export class PiAgentService {
       execute: async (_callId, params) => {
         const handle = this.handles.get(workspace.id)
         if (!handle) throw new Error('会话已关闭')
-        const run = this.ensureRun(handle)
+        // 无进行中 run 时不新建:直接提示,不置闸门标志、不落盘
+        const run = this.ensureRun(handle, false)
+        if (!run) {
+          return {
+            content: [{ type: 'text' as const, text: '当前没有进行中的任务,无需请求批准。' }],
+            details: undefined,
+          }
+        }
         const summary = (params as { summary: string }).summary
         run.status = 'awaiting_approval'
         run.gate = { pending: true, planFile: detectPlanFile(workspace.path, run) }
@@ -497,15 +507,22 @@ export class PiAgentService {
       name: 'complete_task',
       label: 'complete_task',
       description:
-        '声明当前任务已全部完成(最终交付)。任务交付完成后必须调用此工具并立即结束回合;' +
+        '声明当前任务已全部完成(最终交付)。仅当存在进行中的任务且任务确实已完成时调用此工具并立即结束回合;' +
+        '没有进行中任务时(如咨询、问答、查看状态)不要调用此工具,直接以文本回应即可。' +
         '调用后本任务的 run 标记为完成,下一次新需求将开启新的 run(新产物目录)。',
       promptSnippet: 'Mark the current task as complete',
       parameters: params,
       execute: async (_callId, _params) => {
         const handle = this.handles.get(workspace.id)
         if (!handle) throw new Error('会话已关闭')
-        // 与 wait_for_approval 一致:无 run 则新建(罕见,容忍空 done run)
-        const run = this.ensureRun(handle)
+        // 无进行中 run 时不新建:直接提示,不置完成标志、不落盘、不释放
+        const run = this.ensureRun(handle, false)
+        if (!run) {
+          return {
+            content: [{ type: 'text' as const, text: '当前没有进行中的任务,无需调用 complete_task。' }],
+            details: undefined,
+          }
+        }
         handle.turnCompleteCalled = true
         run.status = 'done'
         run.gate = { pending: false, planFile: null }
