@@ -56,6 +56,9 @@ importers:
       hono:
         specifier: ^4.12.34
         version: 4.12.34
+      unbash:
+        specifier: ^4.0.5
+        version: 4.0.5
     devDependencies:
       '@types/node':
         specifier: ^26.1.2
@@ -2128,6 +2131,10 @@ packages:
     resolution: {integrity: sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw==}
     engines: {node: '>=14.17'}
     hasBin: true
+
+  unbash@4.0.5:
+    resolution: {integrity: sha512-EE9xv9cr93DSppe086Rnbq0jwG7MBCEe22JZ4UQ8Bn9RyUwDSoUpBmzdb5+7PzocdqBEb/K73FGPaQUMmLxTQQ==}
+    engines: {node: '>=14'}
 
   undici-types@8.3.0:
     resolution: {integrity: sha512-j375ScV60dom+YkPFIfTLcOiPxkN/buHz5GobjLhixFuANaNs3C9l4GmrWqejgXWJ7BbJcFYpTEUkS1Ge8bpZQ==}
@@ -4328,6 +4335,8 @@ snapshots:
       - supports-color
 
   typescript@6.0.3: {}
+
+  unbash@4.0.5: {}
 
   undici-types@8.3.0: {}
 

@@ -4,11 +4,16 @@ import path from 'node:path'
 import type { Api, Model, ModelThinkingLevel } from '@earendil-works/pi-ai'
 import {
   createAgentSession,
+  createBashTool,
+  createCodingTools,
+  createReadOnlyTools,
   ModelRuntime,
   SessionManager,
   type AgentSession,
   type AgentSessionEvent,
+  type ToolDefinition,
 } from '@earendil-works/pi-coding-agent'
+import { createWorkspaceBashHook, guardPathTool, toToolDefinition } from './workspaceGuard.js'
 import type {
   AgentConfig,
   HistoryBlock,
@@ -177,6 +182,18 @@ export class PiAgentService {
       // 绝不写入用户全局 ~/.pi/agent/sessions
       SessionManager.create(workspace.path, sessionDir)
 
+    // 工作区边界守卫:所有工具都无法逃逸到工作区目录之外
+    // - bash:createBashTool 注入 spawnHook,unbash 解析命令静态审计(重定向/文件命令/cd/嵌套替换)
+    // - read/write/edit/grep/find/ls:包装 execute,参数路径先校验
+    const guardedTools: ToolDefinition[] = workspace.readOnly
+      ? createReadOnlyTools(workspace.path).map((tool) => guardPathTool(toToolDefinition(tool), workspace.path))
+      : [
+          ...createCodingTools(workspace.path)
+            .filter((tool) => tool.name !== 'bash')
+            .map((tool) => guardPathTool(toToolDefinition(tool), workspace.path)),
+          toToolDefinition(createBashTool(workspace.path, { spawnHook: createWorkspaceBashHook(workspace.path) })),
+        ]
+
     const { session } = await createAgentSession({
       cwd: workspace.path,
       agentDir: this.store.agentDir,
@@ -184,6 +201,7 @@ export class PiAgentService {
       model,
       thinkingLevel: (stored.thinkingLevel as ModelThinkingLevel | undefined) ?? 'off',
       sessionManager,
+      customTools: guardedTools,
       // 权限:只读工作区仅暴露只读工具,其余用默认工具(read/bash/edit/write),cwd 均绑定工作区
       tools: workspace.readOnly ? ['read', 'grep', 'find', 'ls'] : undefined,
     })
