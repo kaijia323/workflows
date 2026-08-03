@@ -70,9 +70,9 @@ function toggleTool(msg: UiMessage, callId: string): void {
         <span class="truncate font-mono text-[9.5px] text-faint">{{ callId }}</span>
         <span
           class="ml-auto font-mono text-[9px] tracking-wider"
-          :class="live?.status === 'running' ? 'text-signal' : 'text-faint'"
+          :class="live?.status === 'running' ? 'text-signal' : live?.status === 'error' ? 'text-err' : 'text-faint'"
         >
-          {{ live?.status === 'running' ? '● 运行中' : '完成' }}
+          {{ live?.status === 'running' ? '● 运行中' : live?.status === 'error' ? '失败' : '完成' }}
         </span>
         <button
           type="button"
@@ -113,9 +113,9 @@ function toggleTool(msg: UiMessage, callId: string): void {
         <p
           v-else
           class="py-10 text-center font-mono text-[10px]"
-          :class="live ? 'text-signal' : 'text-faint'"
+          :class="live?.status === 'running' ? 'text-signal' : live?.status === 'error' ? 'text-err' : 'text-faint'"
         >
-          {{ live ? '● 运行中,消息即将到达…' : '(无消息)' }}
+          {{ live?.status === 'running' ? '● 运行中,消息即将到达…' : live?.status === 'error' ? '执行失败,未收到任何消息' : '(无消息)' }}
         </p>
       </div>
 

@@ -18,7 +18,7 @@ import { createWorkspaceBashHook, guardPathTool, toToolDefinition } from './work
 import { createFffFindTool, createFffGrepTool, FffIndexManager } from './fffTools.js'
 import { getAgentDefinitions } from './agentDefs.js'
 import { createPromptOnlyLoader } from './promptLoader.js'
-import { runSubAgent } from './subAgent.js'
+import { runSubAgent, SubAgentError, type SubAgentResult } from './subAgent.js'
 import { renderHistory } from './history.js'
 import {
   appendRunAgentCall,
@@ -362,21 +362,45 @@ export class PiAgentService {
         const task = (params as { task: string }).task
         const model = handle.session.model
         const thinkingLevel = handle.session.thinkingLevel ?? 'off'
-        const result = await runSubAgent({
-          store: this.store,
-          runtime: this.runtime,
-          fff: this.fff,
-          workspace,
-          definition: def,
-          run,
-          callId,
-          task,
-          model,
-          thinkingLevel,
-          onEvent: (evt) => this.activeEmitter?.(evt),
-          onProgress: (delta) => onUpdate?.({ content: [{ type: 'text' as const, text: delta }], details: undefined }),
-          signal,
-        })
+        let result: SubAgentResult
+        try {
+          result = await runSubAgent({
+            store: this.store,
+            runtime: this.runtime,
+            fff: this.fff,
+            workspace,
+            definition: def,
+            run,
+            callId,
+            task,
+            model,
+            thinkingLevel,
+            onEvent: (evt) => this.activeEmitter?.(evt),
+            onProgress: (delta) => onUpdate?.({ content: [{ type: 'text' as const, text: delta }], details: undefined }),
+            signal,
+          })
+        } catch (error) {
+          // 失败也要收尾:记录调用 + 发 sub_end(isError)。
+          // 否则前端模态窗永远停在「● 运行中」且光标持续闪烁。
+          const message = error instanceof Error ? error.message : String(error)
+          appendRunAgentCall(workspace.path, run, {
+            callId,
+            agent: name,
+            summary: message,
+            artifact: null,
+            sessionFile: error instanceof SubAgentError ? error.sessionFile : null,
+            ts: Date.now(),
+          })
+          this.activeEmitter?.({
+            type: 'sub_end',
+            callId,
+            agentName: name,
+            summary: message,
+            artifact: null,
+            isError: true,
+          })
+          throw error
+        }
         // 记录调用(模态窗回看 + 快照)
         appendRunAgentCall(workspace.path, run, {
           callId,
@@ -392,6 +416,7 @@ export class PiAgentService {
           agentName: name,
           summary: result.summary,
           artifact: result.artifact,
+          isError: false,
         })
         return { content: [{ type: 'text' as const, text: result.summary }], details: undefined }
       },

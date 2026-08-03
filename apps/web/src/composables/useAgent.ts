@@ -376,6 +376,8 @@ export function useAgent() {
         } else {
           connectionError.value = event.message
         }
+        // 回合异常中断:子代理调用一并收尾,否则模态窗光标永久闪烁
+        finalizeSubSessions('error')
         break
       case 'done':
         streaming.value = false
@@ -383,11 +385,13 @@ export function useAgent() {
           pending.status = 'done'
           pending = null
         }
+        // 回合正常结束:仍缺 sub_end 的子代理(中断/流丢失)一律收尾
+        finalizeSubSessions('done')
         void refreshRun()
         break
       /* ---- 工作流编排事件 ---- */
       case 'sub_message_start': {
-        const sub = ensureSubSession(event.callId, event.role === 'assistant' ? '运行中' : '')
+        const sub = ensureSubSession(event.callId, '')
         const msg: UiMessage = reactive({
           id: event.id,
           role: event.role,
@@ -449,7 +453,8 @@ export function useAgent() {
           for (const m of sub.messages) {
             if (m.status === 'streaming') m.status = 'done'
           }
-          sub.status = 'done'
+          sub.status = event.isError ? 'error' : 'done'
+          sub.agentName = event.agentName
           sub.summary = event.summary
           sub.artifact = event.artifact
         }
@@ -463,6 +468,17 @@ export function useAgent() {
         }
         void refreshRun()
         break
+    }
+  }
+
+  /** 收尾仍处于运行/流式状态的子代理会话(幂等;回合正常结束或异常中断时调用) */
+  function finalizeSubSessions(status: 'done' | 'error'): void {
+    for (const sub of subSessions.values()) {
+      if (sub.status === 'running') sub.status = status
+      for (const m of sub.messages) {
+        // 消息统一置 done:只停光标,保留内容与错误标记
+        if (m.status === 'streaming') m.status = 'done'
+      }
     }
   }
 
@@ -576,6 +592,14 @@ export function useAgent() {
     } finally {
       streaming.value = false
       abortController = null
+      // 兜底:流无论以何种方式结束(正常 done / 后端 error / 连接断开 / 中断),
+      // 都必须收尾所有流式状态。否则只有工具块(无正文)的消息、子代理模态窗
+      // 的流式光标会永久闪烁。
+      if (pending) {
+        pending.status = 'done'
+        pending = null
+      }
+      finalizeSubSessions('done')
       await refreshStatus()
     }
   }

@@ -180,8 +180,8 @@ export type SessionEvent =
   | { type: 'done' }
   // 子代理编排:sub_* 事件挂载在主代理工具调用的 callId 下
   | SubAgentEvent
-  // 子代理结束(主代理工具调用收尾前的镜像)
-  | { type: 'sub_end'; callId: string; agentName: string; summary: string; artifact: string | null }
+  // 子代理结束(主代理工具调用收尾前的镜像;isError=true 表示子代理执行失败)
+  | { type: 'sub_end'; callId: string; agentName: string; summary: string; artifact: string | null; isError: boolean }
   // 闸门请求:planner 产出计划后等待用户批准/驳回
   | { type: 'gate_required'; runId: string; planFile: string | null; summary: string }
 

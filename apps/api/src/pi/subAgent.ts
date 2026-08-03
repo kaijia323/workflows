@@ -143,21 +143,26 @@ function guardWriteTool(
   return definition
 }
 
-/** 镜像主会话事件为 sub_* 事件(挂载 callId) */
-function toSubEvents(callId: string, event: AgentSessionEvent, onProgress?: (delta: string) => void): SessionEvent[] {
+/** 镜像主会话事件为 sub_* 事件(挂载 callId)。导出供单测。 */
+export function toSubEvents(callId: string, event: AgentSessionEvent, onProgress?: (delta: string) => void): SessionEvent[] {
   const out: SessionEvent[] = []
   const push = (evt: SessionEvent): void => {
     out.push(evt)
   }
   switch (event.type) {
     case 'message_start': {
+      // 只镜像 user / assistant 消息。工具结果消息(SDK 以 role=toolResult 推送)
+      // 不镜像:内容已由 sub_tool_end 携带,镜像会在前端模态窗产生一条条
+      // 只有闪烁光标(showCaretRow)的空消息。
+      const role = event.message.role
+      if (role !== 'user' && role !== 'assistant') return out
       // user 消息(子代理任务)直接附带完整文本,否则前端无法渲染任务内容
-      const text = event.message.role === 'user' ? extractText(event.message.content) : undefined
+      const text = role === 'user' ? extractText(event.message.content) : undefined
       push({
         type: 'sub_message_start',
         callId,
-        role: event.message.role === 'user' ? 'user' : 'assistant',
-        id: `${event.message.timestamp}-${event.message.role}`,
+        role,
+        id: `${event.message.timestamp}-${role}`,
         text,
       })
       return out
@@ -239,6 +244,16 @@ function workspaceHasFile(workspacePath: string, relPath: string): boolean {
   return existsSync(path.join(workspacePath, relPath))
 }
 
+/** 子代理执行失败(携带会话文件,供失败调用在模态窗回看) */
+export class SubAgentError extends Error {
+  readonly sessionFile: string | null
+  constructor(message: string, sessionFile: string | null, cause?: unknown) {
+    super(message, { cause })
+    this.name = 'SubAgentError'
+    this.sessionFile = sessionFile
+  }
+}
+
 /**
  * 运行子代理:创建独立会话(prompt = 任务 + 产物目录说明),镜像事件,返回摘要。
  */
@@ -291,9 +306,11 @@ export async function runSubAgent(options: RunSubAgentOptions): Promise<SubAgent
     session.dispose()
     return { summary, artifact, sessionFile }
   } catch (error) {
+    // 先取会话文件再 dispose:失败调用也要能回看历史(模态窗)
+    const sessionFile = session.sessionFile ? path.relative(store.agentDir, session.sessionFile) : null
     session.dispose()
     const message = error instanceof Error ? error.message : String(error)
-    throw new Error(`子代理 ${name} 执行失败:${message}`, { cause: error })
+    throw new SubAgentError(`子代理 ${name} 执行失败:${message}`, sessionFile, error)
   } finally {
     unsubscribe()
     if (signal) signal.removeEventListener('abort', disposeOnAbort)

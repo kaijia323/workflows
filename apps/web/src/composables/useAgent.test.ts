@@ -200,4 +200,81 @@ describe('useAgent 流式渲染', () => {
     expect(assistant.segments.map((s) => s.kind)).toEqual(['thinking', 'tool', 'text'])
     expect(assistant.segments[1]).toMatchObject({ kind: 'tool', callId: 'c1', name: 'grep', output: 'found', collapsed: true })
   })
+
+  it('流中途断开(无 done 事件)时收尾所有流式状态,光标不再永久闪烁(回归)', async () => {
+    // 模拟连接死亡:只有 tool 事件,没有任何收尾事件,流直接关闭
+    const events: Array<Record<string, unknown>> = [
+      { type: 'agent_start' },
+      { type: 'tool_start', toolName: 'bash', callId: 'c1' },
+      { type: 'tool_update', callId: 'c1', delta: 'running…' },
+    ]
+    const stream = sseStream(events.map((e) => `data: ${JSON.stringify(e)}\n\n`))
+    stubApi(stream)
+
+    const agent = useAgent()
+    await agent.init()
+    await agent.openWorkspace('ws-1')
+    await agent.sendMessage('跑个脚本')
+
+    // 消息只有工具块、无正文,流式期间由 showCaretRow 显示闪烁光标;
+    // 流异常断开后必须收尾,否则光标永久闪烁
+    const last = agent.messages.value.at(-1)
+    expect(last?.status).toBe('done')
+    expect(last?.segments.map((s) => s.kind)).toEqual(['tool'])
+  })
+
+  it('sub_end 带 isError 时子代理会话置为 error,模态窗不再显示「● 运行中」(回归)', async () => {
+    const events: Array<Record<string, unknown>> = [
+      { type: 'agent_start' },
+      { type: 'tool_start', toolName: 'planner', callId: 'p1' },
+      { type: 'sub_message_start', callId: 'p1', role: 'user', id: 'u1', text: '做计划' },
+      { type: 'sub_message_start', callId: 'p1', role: 'assistant', id: 'a1' },
+      { type: 'sub_tool_start', callId: 'p1', toolCallId: 't1', toolName: 'bash' },
+      { type: 'sub_tool_end', callId: 'p1', toolCallId: 't1', toolName: 'bash', isError: true, output: 'boom' },
+      // 子代理失败:后端补发 sub_end(isError=true) 收尾
+      { type: 'sub_end', callId: 'p1', agentName: 'planner', summary: '子代理 planner 执行失败:boom', artifact: null, isError: true },
+      { type: 'tool_end', callId: 'p1', toolName: 'planner', isError: true, output: '子代理 planner 执行失败:boom' },
+      { type: 'agent_end' },
+      { type: 'done' },
+    ]
+    const stream = sseStream(events.map((e) => `data: ${JSON.stringify(e)}\n\n`))
+    stubApi(stream)
+
+    const agent = useAgent()
+    await agent.init()
+    await agent.openWorkspace('ws-1')
+    await agent.sendMessage('做个计划')
+
+    const sub = agent.subSessions.get('p1')
+    expect(sub?.status).toBe('error')
+    expect(sub?.summary).toBe('子代理 planner 执行失败:boom')
+    // 子代理内所有消息收尾,不残留流式光标
+    expect(sub?.messages.every((m) => m.status === 'done')).toBe(true)
+  })
+
+  it('error 事件(回合中断)时收尾所有运行中的子代理会话(回归)', async () => {
+    const events: Array<Record<string, unknown>> = [
+      { type: 'agent_start' },
+      { type: 'tool_start', toolName: 'executor', callId: 'e1' },
+      { type: 'sub_message_start', callId: 'e1', role: 'user', id: 'u1', text: '改代码' },
+      { type: 'sub_message_start', callId: 'e1', role: 'assistant', id: 'a1' },
+      { type: 'sub_text_delta', callId: 'e1', delta: '正在处理' },
+      // 后端报错,且 sub_end 缺失(子代理中断)
+      { type: 'error', message: 'agent 执行出错' },
+    ]
+    const stream = sseStream(events.map((e) => `data: ${JSON.stringify(e)}\n\n`))
+    stubApi(stream)
+
+    const agent = useAgent()
+    await agent.init()
+    await agent.openWorkspace('ws-1')
+    await agent.sendMessage('执行一下')
+
+    const sub = agent.subSessions.get('e1')
+    expect(sub?.status).toBe('error')
+    expect(sub?.messages.every((m) => m.status === 'done')).toBe(true)
+    // 主消息同样收尾为 error,不残留流式光标
+    const last = agent.messages.value.at(-1)
+    expect(last?.status).toBe('error')
+  })
 })
