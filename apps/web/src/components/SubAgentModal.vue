@@ -142,7 +142,7 @@ function toggleTool(msg: UiMessage, callId: string): void {
             :key="msg.id"
             :message="msg"
             @toggle-thinking="toggleThinking"
-            @toggle-tool="toggleTool"
+            @tool-click="toggleTool"
           />
         </div>
         <p
