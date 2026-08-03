@@ -1,5 +1,5 @@
 import { computed, reactive, ref } from 'vue'
-import type { AgentConfig, HistoryItem, SessionEvent, SessionStatus, Workspace } from '@dag-pi/shared'
+import type { AgentConfig, HistoryItem, SessionEvent, SessionList, SessionMeta, SessionStatus, Workspace } from '@dag-pi/shared'
 
 export interface UiToolRun {
   callId: string
@@ -91,6 +91,7 @@ export function useAgent() {
   const config = ref<AgentConfig | null>(null)
   const workspaces = ref<Workspace[]>([])
   const activeWorkspaceId = ref<string | null>(null)
+  const sessionList = ref<SessionList | null>(null)
   const messages = ref<UiMessage[]>([])
   const streaming = ref(false)
   const status = ref<SessionStatus | null>(null)
@@ -145,6 +146,7 @@ export function useAgent() {
     if (activeWorkspaceId.value === id) {
       activeWorkspaceId.value = null
       messages.value = []
+      sessionList.value = null
     }
     await refreshWorkspaces()
   }
@@ -158,15 +160,17 @@ export function useAgent() {
     await refreshWorkspaces()
   }
 
-  /** 打开工作区:恢复持久化会话历史 */
-  async function openWorkspace(id: string): Promise<void> {
-    if (activeWorkspaceId.value === id) return
-    if (streaming.value) await abort()
-    const data = await request<{ history: HistoryItem[]; status: SessionStatus }>(
-      `/api/agent/workspaces/${id}/open`,
-      { method: 'POST' },
-    )
-    activeWorkspaceId.value = id
+  /** 打开/切换会话的完整数据(历史 + 状态 + 会话列表) */
+  interface SessionData {
+    history: HistoryItem[]
+    status: SessionStatus
+    sessions: SessionMeta[]
+    activeSessionId: string | null
+  }
+
+  /** 应用会话数据:渲染历史、重置流式状态、刷新会话列表 */
+  function applySessionData(data: SessionData): void {
+    pending = null
     toolRuns.value = []
     messages.value = data.history.map((item) => ({
       id: item.id,
@@ -183,6 +187,52 @@ export function useAgent() {
       status: 'done',
     }))
     status.value = data.status
+    sessionList.value = { sessions: data.sessions, activeSessionId: data.activeSessionId }
+  }
+
+  /** 打开工作区:恢复激活会话历史与会话列表 */
+  async function openWorkspace(id: string): Promise<void> {
+    if (activeWorkspaceId.value === id) return
+    if (streaming.value) await abort()
+    const data = await request<SessionData>(`/api/agent/workspaces/${id}/open`, { method: 'POST' })
+    activeWorkspaceId.value = id
+    applySessionData(data)
+  }
+
+  /** 新建会话:旧会话 JSONL 全部保留,新会话成为当前 */
+  async function newSession(): Promise<void> {
+    const workspaceId = activeWorkspaceId.value
+    if (!workspaceId) throw new Error('请先选择工作区')
+    if (streaming.value) await abort()
+    const data = await request<SessionData>(`/api/agent/workspaces/${workspaceId}/sessions`, { method: 'POST' })
+    applySessionData(data)
+  }
+
+  /** 切换会话:加载该会话历史并激活 */
+  async function switchSession(sessionId: string): Promise<void> {
+    const workspaceId = activeWorkspaceId.value
+    if (!workspaceId) throw new Error('请先选择工作区')
+    if (streaming.value) await abort()
+    const data = await request<SessionData>(`/api/agent/workspaces/${workspaceId}/sessions/${sessionId}`, { method: 'POST' })
+    applySessionData(data)
+  }
+
+  /** 删除会话;删除的是当前会话时,自动切到剩余最新会话 */
+  async function deleteSession(sessionId: string): Promise<void> {
+    const workspaceId = activeWorkspaceId.value
+    if (!workspaceId) throw new Error('请先选择工作区')
+    if (streaming.value) await abort()
+    const wasActive = sessionList.value?.activeSessionId === sessionId
+    const data = await request<{ sessions: SessionMeta[]; activeSessionId: string | null }>(
+      `/api/agent/workspaces/${workspaceId}/sessions/${sessionId}`,
+      { method: 'DELETE' },
+    )
+    sessionList.value = { sessions: data.sessions, activeSessionId: data.activeSessionId }
+    if (wasActive) {
+      // 重新打开:后端已自动激活剩余最新会话
+      const open = await request<SessionData>(`/api/agent/workspaces/${workspaceId}/open`, { method: 'POST' })
+      applySessionData(open)
+    }
   }
 
   async function switchModel(modelId: string): Promise<void> {
@@ -383,6 +433,7 @@ export function useAgent() {
     workspaces,
     activeWorkspaceId,
     activeWorkspace,
+    sessionList,
     messages,
     streaming,
     status,
@@ -400,6 +451,9 @@ export function useAgent() {
     switchModel,
     switchThinking,
     sendMessage,
+    newSession,
+    switchSession,
+    deleteSession,
     abort,
     refreshStatus,
   }

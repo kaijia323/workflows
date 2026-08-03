@@ -3,6 +3,7 @@ import { nextTick, onMounted, ref, watch } from 'vue'
 import type { AgentStore, UiMessage } from '../composables/useAgent'
 import { findToolSegment, hasThinking, messageText } from '../composables/useAgent'
 import MessageBubble from './MessageBubble.vue'
+import SessionSwitcher from './SessionSwitcher.vue'
 
 /**
  * 中栏:聊天区(处理节点)。
@@ -89,6 +90,7 @@ function toggleTool(message: UiMessage, callId: string) {
         <span class="ml-auto font-mono text-[10px] text-faint">
           {{ agent.status.value?.messageCount ?? 0 }} msgs
         </span>
+        <SessionSwitcher :agent="agent" />
       </template>
       <span
         v-else

@@ -2,7 +2,8 @@ import type { Context } from 'hono'
 import type { Hono } from 'hono'
 import { HTTPException } from 'hono/http-exception'
 import { streamSSE } from 'hono/streaming'
-import { addWorkspace, hasApiKey, loadWorkspaces, removeWorkspace, updateWorkspace, type DagPiStore } from '../config.js'
+import type { HistoryItem } from '@dag-pi/shared'
+import { addWorkspace, getActiveSession, getSession, hasApiKey, loadWorkspaces, removeWorkspace, updateWorkspace, type DagPiStore } from '../config.js'
 import { PiAgentService } from '../pi/piService.js'
 
 export function registerAgentRoutes(app: Hono, store: DagPiStore, pi: PiAgentService): void {
@@ -70,9 +71,65 @@ export function registerAgentRoutes(app: Hono, store: DagPiStore, pi: PiAgentSer
     return c.json({ code: 0, message: '已更新工作区', data: updated })
   })
 
-  app.delete('/api/agent/workspaces/:id', (c) => {
-    if (!removeWorkspace(store, c.req.param('id'))) throw new HTTPException(404, { message: '工作区不存在' })
+  app.delete('/api/agent/workspaces/:id', async (c) => {
+    const workspace = requireWorkspace(store, c.req.param('id'))
+    await pi.cleanupWorkspaceSessions(workspace)
+    if (!removeWorkspace(store, workspace.id)) throw new HTTPException(404, { message: '工作区不存在' })
     return c.json({ code: 0, message: '已移除', data: null })
+  })
+
+  /* ---------------- 会话(一个工作区多个持久化会话,可切换) ---------------- */
+
+  // 会话列表(含激活会话)
+  app.get('/api/agent/workspaces/:id/sessions', (c) => {
+    const workspace = requireWorkspace(store, c.req.param('id'))
+    const sessions = pi.listSessionMetas(workspace)
+    const activeSessionId = sessions.find((s) => s.id === getActiveSession(store, workspace.id)?.id)?.id ?? null
+    return c.json({ code: 0, message: 'ok', data: { sessions, activeSessionId } })
+  })
+
+  // 新建会话:旧会话 JSONL 全部保留,新会话成为当前会话
+  app.post('/api/agent/workspaces/:id/sessions', async (c) => {
+    const workspace = requireWorkspace(store, c.req.param('id'))
+    const handle = await pi.createSession(workspace)
+    return c.json({
+      code: 0,
+      message: '已新建会话',
+      data: {
+        history: renderEmptyHistory(),
+        status: pi.getStatus(workspace),
+        sessions: pi.listSessionMetas(workspace),
+        activeSessionId: handle.sessionId,
+      },
+    })
+  })
+
+  // 切换会话:加载该会话历史并激活
+  app.post('/api/agent/workspaces/:id/sessions/:sessionId', async (c) => {
+    const workspace = requireWorkspace(store, c.req.param('id'))
+    const sessionId = c.req.param('sessionId')
+    if (!getSession(store, workspace.id, sessionId)) throw new HTTPException(404, { message: '会话不存在' })
+    const history = await pi.switchSession(workspace, sessionId)
+    return c.json({
+      code: 0,
+      message: '已切换会话',
+      data: {
+        history,
+        status: pi.getStatus(workspace),
+        sessions: pi.listSessionMetas(workspace),
+        activeSessionId: sessionId,
+      },
+    })
+  })
+
+  // 删除会话(删 JSONL;若删的是激活会话,自动激活剩余最新会话)
+  app.delete('/api/agent/workspaces/:id/sessions/:sessionId', async (c) => {
+    const workspace = requireWorkspace(store, c.req.param('id'))
+    const sessionId = c.req.param('sessionId')
+    await pi.deleteSession(workspace, sessionId)
+    const sessions = pi.listSessionMetas(workspace)
+    const activeSessionId = sessions.find((s) => s.id === getActiveSession(store, workspace.id)?.id)?.id ?? null
+    return c.json({ code: 0, message: '已删除会话', data: { sessions, activeSessionId } })
   })
 
   /* ---------------- 会话 ---------------- */
@@ -81,7 +138,9 @@ export function registerAgentRoutes(app: Hono, store: DagPiStore, pi: PiAgentSer
   app.post('/api/agent/workspaces/:id/open', async (c) => {
     const workspace = requireWorkspace(store, c.req.param('id'))
     const history = await pi.getHistory(workspace)
-    return c.json({ code: 0, message: 'ok', data: { history, status: pi.getStatus(workspace) } })
+    const sessions = pi.listSessionMetas(workspace)
+    const activeSessionId = sessions.find((s) => s.id === getActiveSession(store, workspace.id)?.id)?.id ?? null
+    return c.json({ code: 0, message: 'ok', data: { history, status: pi.getStatus(workspace), sessions, activeSessionId } })
   })
 
   app.get('/api/agent/workspaces/:id/status', (c) => {
@@ -125,4 +184,9 @@ function requireWorkspace(store: DagPiStore, id: string) {
   const workspace = loadWorkspaces(store).find((w) => w.id === id)
   if (!workspace) throw new HTTPException(404, { message: '工作区不存在' })
   return workspace
+}
+
+/** 空历史(新建会话时使用) */
+function renderEmptyHistory(): HistoryItem[] {
+  return []
 }

@@ -93,6 +93,26 @@ export interface SessionStatus {
 }
 
 /**
+ * 工作区下的会话条目(一个工作区可含多个持久化会话,JSONL 均保留)
+ */
+export interface SessionMeta {
+  id: string
+  /** JSONL 会话文件路径 */
+  sessionFile: string
+  createdAt: number
+  /** 最近一次打开时的消息数(未打开过的会话为 0) */
+  messageCount: number
+}
+
+/**
+ * 会话列表(含当前激活会话)
+ */
+export interface SessionList {
+  sessions: SessionMeta[]
+  activeSessionId: string | null
+}
+
+/**
  * 历史消息内容块(按模型输出顺序排列:思考 / 正文 / 工具调用交错出现)
  */
 export type HistoryBlock =

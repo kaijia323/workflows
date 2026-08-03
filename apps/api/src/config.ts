@@ -152,24 +152,126 @@ function isDirectory(dir: string): boolean {
 }
 
 /* ---------------- workspace-sessions.json ---------------- */
-// workspaceId → 会话文件路径(agentDir/sessions 下,与 pi 自身 session 存储一致)
+// workspaceId → 会话状态(一个工作区多个持久化会话,JSONL 均落在 agentDir/sessions)
+// 旧格式(单会话:workspaceId → 文件路径)在读取时自动迁移
 
-export function loadSessionMap(store: DagPiStore): Record<string, string> {
-  return readJson<Record<string, string>>(store.sessionsPath, {})
+export interface StoredSessionMeta {
+  id: string
+  sessionFile: string
+  createdAt: number
+  messageCount: number
 }
 
-export function saveSessionEntry(store: DagPiStore, workspaceId: string, sessionFile: string): void {
-  const map = loadSessionMap(store)
-  map[workspaceId] = sessionFile
-  writeJson(store.sessionsPath, map)
+export interface WorkspaceSessionsState {
+  sessions: Record<string, StoredSessionMeta>
+  active: string | null
 }
 
-export function sessionFileFor(store: DagPiStore, workspaceId: string): string | undefined {
-  const file = loadSessionMap(store)[workspaceId]
-  if (!file) return undefined
-  return existsSync(file) ? file : undefined
+type StoredSessionsFile = Record<string, WorkspaceSessionsState | string>
+
+function saveSessionsFile(store: DagPiStore, file: Record<string, WorkspaceSessionsState>): void {
+  writeJson(store.sessionsPath, file)
 }
 
-export function freshSessionFile(store: DagPiStore, workspaceId: string): string {
-  return path.join(store.agentDir, 'sessions', `${workspaceId}.jsonl`)
+function loadSessionsFile(store: DagPiStore): Record<string, WorkspaceSessionsState> {
+  const raw = readJson<StoredSessionsFile>(store.sessionsPath, {})
+  const out: Record<string, WorkspaceSessionsState> = {}
+  let migrated = false
+  for (const [workspaceId, value] of Object.entries(raw)) {
+    if (typeof value === 'string') {
+      // 旧格式单会话映射 → 迁移为新结构(JSONL 文件本身不动)
+      const id = randomUUID()
+      out[workspaceId] = {
+        sessions: { [id]: { id, sessionFile: value, createdAt: Date.now(), messageCount: 0 } },
+        active: id,
+      }
+      migrated = true
+    } else if (value && typeof value === 'object') {
+      out[workspaceId] = value
+    }
+  }
+  if (migrated) saveSessionsFile(store, out)
+  return out
+}
+
+/** 变更工作区会话状态,自动持久化;返回变更后的状态 */
+export function mutateSessions(
+  store: DagPiStore,
+  workspaceId: string,
+  mutate: (state: WorkspaceSessionsState) => void,
+): WorkspaceSessionsState {
+  const file = loadSessionsFile(store)
+  const state: WorkspaceSessionsState = file[workspaceId] ?? { sessions: {}, active: null }
+  mutate(state)
+  file[workspaceId] = state
+  saveSessionsFile(store, file)
+  return state
+}
+
+/** 工作区会话列表(按创建时间升序) */
+export function listSessions(store: DagPiStore, workspaceId: string): StoredSessionMeta[] {
+  const state = loadSessionsFile(store)[workspaceId]
+  if (!state) return []
+  return Object.values(state.sessions).sort((a, b) => a.createdAt - b.createdAt)
+}
+
+/** 当前激活会话 */
+export function getActiveSession(store: DagPiStore, workspaceId: string): StoredSessionMeta | undefined {
+  const state = loadSessionsFile(store)[workspaceId]
+  if (!state?.active) return undefined
+  return state.sessions[state.active]
+}
+
+/** 指定会话(不存在返回 undefined) */
+export function getSession(store: DagPiStore, workspaceId: string, sessionId: string): StoredSessionMeta | undefined {
+  return loadSessionsFile(store)[workspaceId]?.sessions[sessionId]
+}
+
+/** 会话文件路径(条目缺失或文件已删除返回 undefined) */
+export function sessionFileFor(store: DagPiStore, workspaceId: string, sessionId?: string): string | undefined {
+  const meta = sessionId ? getSession(store, workspaceId, sessionId) : getActiveSession(store, workspaceId)
+  if (!meta) return undefined
+  return existsSync(meta.sessionFile) ? meta.sessionFile : undefined
+}
+
+/** 设置激活会话(会话必须已存在) */
+export function setActiveSession(store: DagPiStore, workspaceId: string, sessionId: string): void {
+  mutateSessions(store, workspaceId, (state) => {
+    if (state.sessions[sessionId]) state.active = sessionId
+  })
+}
+
+/** 更新会话元信息(如消息数) */
+export function updateSessionMeta(
+  store: DagPiStore,
+  workspaceId: string,
+  sessionId: string,
+  patch: Partial<Pick<StoredSessionMeta, 'messageCount'>>,
+): void {
+  mutateSessions(store, workspaceId, (state) => {
+    const meta = state.sessions[sessionId]
+    if (meta) Object.assign(meta, patch)
+  })
+}
+
+/** 删除会话条目;若删的是激活会话,自动激活剩余最新会话。返回删除后的状态 */
+export function removeSession(store: DagPiStore, workspaceId: string, sessionId: string): WorkspaceSessionsState {
+  return mutateSessions(store, workspaceId, (state) => {
+    delete state.sessions[sessionId]
+    if (state.active === sessionId) {
+      const remaining = Object.values(state.sessions).sort((a, b) => a.createdAt - b.createdAt)
+      state.active = remaining.at(-1)?.id ?? null
+    }
+  })
+}
+
+/** 删除工作区时移除其所有会话条目(JSONL 文件由调用方删除),返回被删条目 */
+export function removeWorkspaceSessions(store: DagPiStore, workspaceId: string): StoredSessionMeta[] {
+  const file = loadSessionsFile(store)
+  const state = file[workspaceId]
+  if (!state) return []
+  const metas = Object.values(state.sessions)
+  delete file[workspaceId]
+  saveSessionsFile(store, file)
+  return metas
 }

@@ -1,4 +1,5 @@
-import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { randomUUID } from 'node:crypto'
+import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import type { Api, Model, ModelThinkingLevel } from '@earendil-works/pi-ai'
 import {
@@ -13,16 +14,23 @@ import type {
   HistoryBlock,
   HistoryItem,
   SessionEvent,
+  SessionMeta,
   SessionStatus,
   Workspace,
 } from '@dag-pi/shared'
 import {
   createStore,
+  getActiveSession,
+  getSession,
   hasApiKey,
+  listSessions,
   loadConfig,
-  saveSessionEntry,
-  setApiKey,
+  mutateSessions,
+  removeSession,
+  removeWorkspaceSessions,
   sessionFileFor,
+  setApiKey,
+  updateSessionMeta,
   type DagPiStore,
 } from '../config.js'
 
@@ -31,6 +39,8 @@ const ALL_THINKING_LEVELS: ModelThinkingLevel[] = ['off', 'minimal', 'low', 'med
 
 interface SessionHandle {
   workspace: Workspace
+  /** 当前打开的会话 id */
+  sessionId: string
   session: AgentSession
   usage: { input: number; output: number; cacheRead: number; cacheWrite: number; totalTokens: number; cost: number }
   busy: boolean
@@ -137,14 +147,24 @@ export class PiAgentService {
 
   /* ---------------- 会话 ---------------- */
 
-  private async openSession(workspace: Workspace): Promise<SessionHandle> {
+  /**
+   * 打开工作区会话。
+   * - sessionId 缺省:打开激活会话;尚无任何会话时自动创建并注册
+   * - 已打开同 id 会话直接复用;打开不同 id 时先释放旧会话(旧 JSONL 不动)
+   */
+  private async openSession(workspace: Workspace, sessionId?: string): Promise<SessionHandle> {
     const existing = this.handles.get(workspace.id)
-    if (existing) return existing
+    const targetId = sessionId ?? getActiveSession(this.store, workspace.id)?.id ?? null
+    if (existing) {
+      if (existing.sessionId === targetId) return existing
+      existing.session.dispose()
+      this.handles.delete(workspace.id)
+    }
 
     const stored = loadConfig(this.store)
     const model = this.runtime.getModel('deepseek', stored.model ?? DEFAULT_MODEL) ?? undefined
-    const sessionFile = sessionFileFor(this.store, workspace.id)
     const sessionDir = path.join(this.store.agentDir, 'sessions')
+    const sessionFile = targetId ? sessionFileFor(this.store, workspace.id, targetId) : undefined
     const sessionManager = sessionFile
       ? SessionManager.open(sessionFile)
       : // 关键:显式指定 sessionDir,会话文件落在 .dag-pi/agent/sessions 下,
@@ -162,14 +182,30 @@ export class PiAgentService {
       tools: workspace.readOnly ? ['read', 'grep', 'find', 'ls'] : undefined,
     })
 
-    if (session.sessionFile) {
-      saveSessionEntry(this.store, workspace.id, session.sessionFile)
-    } else if (sessionFile) {
-      saveSessionEntry(this.store, workspace.id, sessionFile)
+    // 注册/回填会话条目:新建的会话文件路径写回存储,消息数同步
+    const finalId = targetId ?? randomUUID()
+    const actualFile = session.sessionFile ?? sessionFile
+    if (actualFile) {
+      mutateSessions(this.store, workspace.id, (state) => {
+        const meta = state.sessions[finalId]
+        if (meta) {
+          if (meta.sessionFile !== actualFile) meta.sessionFile = actualFile
+          meta.messageCount = session.messages.length
+        } else {
+          state.sessions[finalId] = {
+            id: finalId,
+            sessionFile: actualFile,
+            createdAt: Date.now(),
+            messageCount: session.messages.length,
+          }
+        }
+        state.active = finalId
+      })
     }
 
     const handle: SessionHandle = {
       workspace,
+      sessionId: finalId,
       session,
       usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: 0 },
       busy: false,
@@ -186,6 +222,66 @@ export class PiAgentService {
     handle.session.dispose()
     this.handles.delete(workspace.id)
     await this.openSession(workspace)
+  }
+
+  /** 新建会话:保留旧会话(JSONL 不动),创建全新会话并激活 */
+  async createSession(workspace: Workspace): Promise<SessionHandle> {
+    const existing = this.handles.get(workspace.id)
+    if (existing) {
+      if (existing.busy) await existing.session.abort()
+      existing.session.dispose()
+      this.handles.delete(workspace.id)
+    }
+    // 先注册空条目并激活,openSession 会创建新 JSONL 并回填路径
+    const newId = randomUUID()
+    mutateSessions(this.store, workspace.id, (state) => {
+      state.sessions[newId] = { id: newId, sessionFile: '', createdAt: Date.now(), messageCount: 0 }
+      state.active = newId
+    })
+    return this.openSession(workspace, newId)
+  }
+
+  /** 切换到指定会话(历史已持久化,直接加载) */
+  async switchSession(workspace: Workspace, sessionId: string): Promise<HistoryItem[]> {
+    const handle = await this.openSession(workspace, sessionId)
+    return renderHistory(handle.session)
+  }
+
+  /** 删除会话:删 JSONL + 存储条目;删除激活会话时自动激活剩余最新会话 */
+  async deleteSession(workspace: Workspace, sessionId: string): Promise<void> {
+    const meta = getSession(this.store, workspace.id, sessionId)
+    if (!meta) throw new Error('会话不存在')
+    const handle = this.handles.get(workspace.id)
+    if (handle?.sessionId === sessionId) {
+      if (handle.busy) await handle.session.abort()
+      handle.session.dispose()
+      this.handles.delete(workspace.id)
+    }
+    if (meta.sessionFile) rmSync(meta.sessionFile, { force: true })
+    removeSession(this.store, workspace.id, sessionId)
+  }
+
+  /** 删除工作区时清理其所有会话(JSONL + 映射) */
+  async cleanupWorkspaceSessions(workspace: Workspace): Promise<void> {
+    const handle = this.handles.get(workspace.id)
+    if (handle) {
+      handle.session.dispose()
+      this.handles.delete(workspace.id)
+    }
+    for (const meta of removeWorkspaceSessions(this.store, workspace.id)) {
+      if (meta.sessionFile) rmSync(meta.sessionFile, { force: true })
+    }
+  }
+
+  /** 会话列表(当前打开的会话消息数实时回写) */
+  listSessionMetas(workspace: Workspace): SessionMeta[] {
+    const handle = this.handles.get(workspace.id)
+    if (handle?.sessionId) {
+      updateSessionMeta(this.store, workspace.id, handle.sessionId, {
+        messageCount: handle.session.messages.length,
+      })
+    }
+    return listSessions(this.store, workspace.id).map((s) => ({ ...s }))
   }
 
   /** 恢复会话历史(前端打开工作区时调用) */
@@ -245,6 +341,9 @@ export class PiAgentService {
       unsubscribe()
       handle.busy = false
       handle.lastActivityAt = Date.now()
+      updateSessionMeta(this.store, workspace.id, handle.sessionId, {
+        messageCount: handle.session.messages.length,
+      })
     }
   }
 
