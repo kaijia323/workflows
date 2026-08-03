@@ -4,6 +4,9 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { H3, HTTPError, serveStatic } from 'h3'
 import type { DagGraph, DagNode } from '@dag-pi/shared'
+import { createStore } from './config.js'
+import { registerAgentRoutes } from './agent/routes.js'
+import { PiAgentService } from './pi/piService.js'
 
 // 前端构建产物目录(生产环境由本服务托管,前后端同源)
 // src/ 与 dist/ 下均能正确解析到 apps/web/dist
@@ -11,6 +14,16 @@ const webDist = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../.
 const hasWebDist = existsSync(webDist)
 
 export const app = new H3()
+
+/**
+ * 初始化 pi agent 服务(创建 ModelRuntime 与 .dag-pi 存储,注册 agent 路由)。
+ * 由 index.ts 启动时调用;测试环境无需调用。
+ */
+export async function initAgentRoutes(): Promise<void> {
+  const store = createStore()
+  const pi = await PiAgentService.create()
+  registerAgentRoutes(app, store, pi)
+}
 
 // 统一错误响应:保持 ApiResponse<T> 结构,而不是 H3 默认错误格式
 app.use(async (event, next) => {

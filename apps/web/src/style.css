@@ -1,1 +1,139 @@
 @import "tailwindcss";
+
+/*
+ * dag-pi 设计 token —— 「管线控制台」
+ * 主题:DAG 流水线工作台。界面即一条管线:左栏工作区(源节点)→ 中栏 agent(处理节点)→ 右栏观测(输出节点)。
+ * 配色:石墨蓝画布 + 信号琥珀(激活/流动)+ 线缆蓝(连接)
+ */
+@theme {
+  /* 画布与层级 */
+  --color-ink: #0d1017;
+  --color-panel: #141923;
+  --color-raised: #1b2230;
+  --color-edge: #253041;
+  --color-edge-soft: #1c2431;
+
+  /* 文本 */
+  --color-fg: #e8ecf3;
+  --color-dim: #8a94a8;
+  --color-faint: #5b6577;
+
+  /* 语义色:信号琥珀 = 激活/流动,线缆蓝 = 连接/信息,ok/err 少量使用 */
+  --color-signal: #f0a83c;
+  --color-signal-dim: #b47a26;
+  --color-wire: #5c8bee;
+  --color-wire-dim: #3d5f9e;
+  --color-ok: #3fbf74;
+  --color-err: #e4574f;
+
+  /* 字体 */
+  --font-display: "Chakra Petch", "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-body: "Instrument Sans", "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-mono: "JetBrains Mono", "Noto Sans Mono CJK SC", monospace;
+
+  /* 动效 */
+  --ease-flow: cubic-bezier(0.65, 0, 0.35, 1);
+}
+
+/* 全局基础 */
+html,
+body,
+#app {
+  height: 100%;
+}
+
+body {
+  background: var(--color-ink);
+  color: var(--color-fg);
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* 细滚动条:符合仪表台气质 */
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--color-edge);
+  border-radius: 4px;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--color-faint);
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* 选中色 */
+::selection {
+  background: color-mix(in srgb, var(--color-signal) 30%, transparent);
+}
+
+/* 键盘焦点可见 */
+:focus-visible {
+  outline: 1.5px solid var(--color-signal);
+  outline-offset: 1px;
+}
+
+/* 管线流动光点:沿连线的数据脉冲 */
+@keyframes flow-pulse {
+  0% {
+    offset-distance: 0%;
+    opacity: 0;
+  }
+  8% {
+    opacity: 1;
+  }
+  92% {
+    opacity: 1;
+  }
+  100% {
+    offset-distance: 100%;
+    opacity: 0;
+  }
+}
+
+/* 处理中的呼吸 */
+@keyframes breathe {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* 消息进场 */
+@keyframes msg-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* 光标闪烁 */
+@keyframes caret-blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

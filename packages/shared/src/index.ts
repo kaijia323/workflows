@@ -31,3 +31,78 @@ export interface ApiResponse<T> {
   message: string
   data: T
 }
+
+/**
+ * 工作区(项目)目录
+ */
+export interface Workspace {
+  id: string
+  path: string
+  name: string
+  /** 只读模式:agent 仅可读,不可写 */
+  readOnly: boolean
+  createdAt: number
+}
+
+/**
+ * agent 可用模型(来自 pi 内置 deepseek provider)
+ */
+export interface AgentModel {
+  provider: string
+  id: string
+  name: string
+  contextWindow: number
+  maxTokens: number
+  reasoning: boolean
+}
+
+/**
+ * agent 运行配置
+ */
+export interface AgentConfig {
+  /** 是否已配置 DeepSeek API key */
+  hasApiKey: boolean
+  /** 当前模型 id */
+  model: string
+  /** 当前思考级别 */
+  thinkingLevel: string
+  /** 可用模型列表 */
+  models: AgentModel[]
+  /** 可用思考级别列表 */
+  thinkingLevels: string[]
+}
+
+/**
+ * 会话状态快照
+ */
+export interface SessionStatus {
+  workspaceId: string
+  model: string
+  thinkingLevel: string
+  messageCount: number
+  streaming: boolean
+  lastActivityAt: number | null
+  usage?: {
+    input: number
+    output: number
+    cacheRead: number
+    cacheWrite: number
+    totalTokens: number
+    cost: number
+  }
+}
+
+/**
+ * 会话事件(SSE 流)
+ */
+export type SessionEvent =
+  | { type: 'text_delta'; delta: string }
+  | { type: 'thinking_delta'; delta: string }
+  | { type: 'tool_start'; toolName: string; callId: string }
+  | { type: 'tool_update'; callId: string; delta: string }
+  | { type: 'tool_end'; callId: string; toolName: string; isError: boolean; output: string }
+  | { type: 'message_start'; role: 'user' | 'assistant'; id: string }
+  | { type: 'agent_start' }
+  | { type: 'agent_end'; usage: SessionStatus['usage'] }
+  | { type: 'error'; message: string }
+  | { type: 'done' }

@@ -19,3 +19,6 @@ npm-debug.log*
 # misc
 .DS_Store
 *.local
+
+# local dag-pi config (dev)
+.dag-pi/
