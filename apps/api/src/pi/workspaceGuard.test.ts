@@ -49,13 +49,19 @@ describe('normalizeBashPath', () => {
     expect(normalizeBashPath('~/x/y')).toBe(path.join(home!, 'x', 'y'))
   })
 
+  it('/tmp 映射到系统临时目录', () => {
+    const tmp = normalizeBashPath('/tmp')
+    expect(tmp).toBeTruthy()
+    expect(normalizeBashPath('/tmp/out.txt')).toBe(path.join(tmp!, 'out.txt'))
+  })
+
   it('win32 下 /c/ 盘符形式转换为 Windows 路径', () => {
     if (process.platform === 'win32') {
       expect(normalizeBashPath('/c/Users/kaijia/a.txt')).toBe('C:\\Users\\kaijia\\a.txt')
       expect(normalizeBashPath('/d/dev/proj')).toBe('D:\\dev\\proj')
       // msys 根路径无法映射 → null(按越界处理)
       expect(normalizeBashPath('/etc/passwd')).toBeNull()
-      expect(normalizeBashPath('/tmp/x')).toBeNull()
+      expect(normalizeBashPath('/proc/cpuinfo')).toBeNull()
     }
   })
 
@@ -70,6 +76,30 @@ describe('auditBashCommand:放行场景', () => {
   it('无路径参数的普通命令', () => {
     for (const cmd of ['ls', 'git status', 'echo hello world', 'pnpm install', 'npm run build']) {
       expect(auditBashCommand(cmd, WS), cmd).toEqual([])
+    }
+  })
+
+  it('设备文件(/dev/null 等)与 /dev/fd 放行', () => {
+    for (const cmd of [
+      'ls > /dev/null',
+      'echo hi 2>/dev/null',
+      'cat /dev/urandom | head -c 16',
+      'cat < /dev/zero',
+      'echo ok > /dev/fd/1',
+      'dd if=/dev/urandom of=/dev/null bs=1 count=1',
+    ]) {
+      expect(auditBashCommand(cmd, WS), cmd).toEqual([])
+    }
+  })
+
+  it('临时目录(/tmp、$TEMP)放行', () => {
+    expect(auditBashCommand('echo hi > /tmp/out.txt', WS)).toEqual([])
+    expect(auditBashCommand('cat /tmp/out.txt', WS)).toEqual([])
+    expect(auditBashCommand('ls /tmp | head', WS)).toEqual([])
+    expect(auditBashCommand('dd if=/dev/zero of=/tmp/rnd.bin bs=1M count=1', WS)).toEqual([])
+    if (process.platform === 'win32' && process.env.TEMP) {
+      expect(auditBashCommand('echo hi > "$TEMP/out.log"', WS)).toEqual([])
+      expect(auditBashCommand('echo hi > "$TMP/out.log"', WS)).toEqual([])
     }
   })
 
@@ -88,15 +118,23 @@ describe('auditBashCommand:放行场景', () => {
 })
 
 describe('auditBashCommand:拦截场景', () => {
+  it('临时目录内的相对逃逸仍拦截(resolve 后判定)', () => {
+    expect(auditBashCommand('echo x > /tmp/../../secret.txt', WS).length).toBeGreaterThan(0)
+  })
+
+  it('/dev/tcp 等网络伪设备不放行', () => {
+    expect(auditBashCommand('cat < /dev/tcp/example.com/80', WS).length).toBeGreaterThan(0)
+  })
+
   it('绝对路径越界(msys 根 / 盘符 / Windows 路径)', () => {
     expect(auditBashCommand('cat /etc/passwd', WS).length).toBeGreaterThan(0)
+    expect(auditBashCommand('cat /proc/cpuinfo', WS).length).toBeGreaterThan(0)
     expect(auditBashCommand('cat /c/Users/kaijia/secret.txt', WS).length).toBeGreaterThan(0)
     expect(auditBashCommand('cat C:/Users/kaijia/secret.txt', WS).length).toBeGreaterThan(0)
     expect(auditBashCommand('cat C:\\Users\\kaijia\\secret.txt', WS).length).toBeGreaterThan(0)
   })
 
   it('重定向越界', () => {
-    expect(auditBashCommand('echo hi > /tmp/out.txt', WS).length).toBeGreaterThan(0)
     expect(auditBashCommand('echo hi >> ../outside.log', WS).length).toBeGreaterThan(0)
     expect(auditBashCommand('cat <<EOF > /etc/x\nbody\nEOF', WS).length).toBeGreaterThan(0)
   })
@@ -132,7 +170,7 @@ describe('auditBashCommand:拦截场景', () => {
 
   it('未知动态展开无法验证 → 拒绝', () => {
     expect(auditBashCommand('cat "$UNKNOWN_VAR/file"', WS).length).toBeGreaterThan(0)
-    expect(auditBashCommand('echo x > "$TMP/out"', WS).length).toBeGreaterThan(0)
+    expect(auditBashCommand('echo x > "$UNDEFINED_DIR/out"', WS).length).toBeGreaterThan(0)
   })
 
   it('解析失败 → 拒绝', () => {
@@ -140,8 +178,9 @@ describe('auditBashCommand:拦截场景', () => {
     expect(auditBashCommand('echo "unclosed', WS).length).toBeGreaterThan(0)
   })
 
-  it('dd 的 if=/of= 形式', () => {
-    expect(auditBashCommand('dd if=/dev/zero of=out.bin bs=1M count=1', WS).length).toBeGreaterThan(0)
+  it('dd 的 if=/of= 形式(源越界拦截,合法源放行)', () => {
+    expect(auditBashCommand('dd if=/etc/passwd of=out.bin bs=1M count=1', WS).length).toBeGreaterThan(0)
+    expect(auditBashCommand('dd if=/dev/urandom of=/tmp/rnd.bin bs=1M count=1', WS)).toEqual([])
   })
 })
 

@@ -18,7 +18,7 @@
  * - 嵌套命令替换递归审计,深度上限 6,超出不再深挖(正常生成几乎不可能到达)
  */
 
-import { homedir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import path from 'node:path'
 import { parse, type Command, type Node, type ParsedScript, type Redirect, type Word } from 'unbash'
 import type { BashSpawnContext, BashSpawnHook, ToolDefinition } from '@earendil-works/pi-coding-agent'
@@ -46,9 +46,63 @@ const FILE_REDIRECT_OPERATORS = new Set(['>', '>>', '<', '<>', '>|', '&>', '&>>'
 
 const MAX_SUBSTITUTION_DEPTH = 6
 
+/** 设备/无信息流白名单(原始 bash 形式精确匹配,msys 与 Linux 语义一致):
+ * 这些路径不携带任何数据(丢弃/熵源/进程自身 fd),拦截无安全收益只有误伤。
+ * `/dev/fd/N` 放行是安全的:要打开指向外部文件的 fd,必须先出现外部路径(已被审计)。 */
+const DEVICE_WHITELIST = new Set([
+  '/dev/null', '/dev/zero', '/dev/random', '/dev/urandom',
+  '/dev/stdin', '/dev/stdout', '/dev/stderr', '/dev/tty',
+])
+
 /** 主目录:Git Bash 场景 HOME 可能是 POSIX 风格(/c/Users/...),展开后统一转换 */
 function homeDir(): string {
   return process.env.HOME ?? process.env.USERPROFILE ?? homedir()
+}
+
+/** 展开环境的预置变量(HOME/PWD/临时目录),赋值传播在此基础上叠加 */
+function baseEnv(workspacePath: string): Map<string, string> {
+  const env = new Map<string, string>()
+  env.set('HOME', homeDir())
+  env.set('PWD', workspacePath)
+  if (process.env.TEMP) env.set('TEMP', process.env.TEMP)
+  if (process.env.TMP) env.set('TMP', process.env.TMP)
+  if (process.env.TMPDIR) env.set('TMPDIR', process.env.TMPDIR)
+  return env
+}
+
+/**
+ * 临时目录判定(resolve 后边界匹配,win32 大小写归一)。
+ * 必须 resolve 后再比:否则 `$TEMP\..\..\secret` 可骗过字符串前缀检查。
+ */
+function isTempPath(resolved: string): boolean {
+  const temps = new Set<string>()
+  temps.add(tmpdir())
+  if (process.env.TEMP) temps.add(process.env.TEMP)
+  if (process.env.TMP) temps.add(process.env.TMP)
+  if (process.env.TMPDIR) temps.add(process.env.TMPDIR)
+  for (const t of temps) {
+    const root = path.resolve(t)
+    const rel = path.relative(root, resolved)
+    if (rel === '') return true
+    const normalized = process.platform === 'win32' ? rel.toLowerCase() : rel
+    if (!normalized.startsWith('..') && !path.isAbsolute(normalized)) return true
+  }
+  return false
+}
+
+/**
+ * 统一路径判定(bash 层与工具层共用):
+ * 设备白名单 → 临时目录 → 工作区内 → 否则拒绝。
+ * candidate 为 bash/工具参数语境下的原始路径。
+ */
+export function isAllowedTargetPath(candidate: string, workspacePath: string): boolean {
+  if (DEVICE_WHITELIST.has(candidate)) return true
+  if (candidate === '/dev/fd' || candidate.startsWith('/dev/fd/')) return true
+  const normalized = normalizeBashPath(candidate)
+  if (normalized === null) return false
+  const resolved = path.resolve(workspacePath, normalized)
+  if (isTempPath(resolved)) return true
+  return isPathWithinWorkspace(workspacePath, resolved)
 }
 
 /**
@@ -68,17 +122,19 @@ export function isPathWithinWorkspace(workspacePath: string, targetPath: string)
 /**
  * 把 bash 命令语境下的路径规范化为可比较的绝对路径。
  * - `~/...` → HOME 展开
- * - win32 下 `/c/Users/...` → `C:\Users\...`;`/etc/...` 等 msys 根 → null(无法映射,按越界处理)
+ * - `/tmp/...` → 临时目录(msys 语义;win32 映射到 os.tmpdir())
+ * - win32 下 `/c/Users/...` → `C:\Users\...`;`/etc/...` 等其他 msys 根 → null(无法映射,按越界处理)
  * - 相对路径原样返回(调用方基于工作区 resolve)
  */
 export function normalizeBashPath(raw: string): string | null {
   let p = raw
   if (p === '~') p = homeDir()
   else if (p.startsWith('~/')) p = path.join(homeDir(), p.slice(2))
+  else if (p === '/tmp' || p.startsWith('/tmp/')) p = path.join(tmpdir(), p.slice(4))
   if (process.platform === 'win32') {
     const drive = /^\/[a-zA-Z]\//.exec(p)
     if (drive) return `${drive[0][1].toUpperCase()}:\\${p.slice(3).replace(/\//g, '\\')}`
-    if (p.startsWith('/')) return null // msys 根(/etc /usr /tmp ...)在工作区外
+    if (p.startsWith('/')) return null // msys 根(/etc /usr /proc ...)在工作区外
   }
   return p
 }
@@ -122,7 +178,8 @@ function resolveWord(word: Word | undefined, env: ReadonlyMap<string, string>): 
         for (const child of p.parts) appendPart(child as never)
         return
       case 'SimpleExpansion': {
-        const v = env.get(p.text)
+        // text 形如 "$TEMP",去 $ 前缀后查 env
+        const v = env.get(p.text.slice(1))
         if (v !== undefined) value += v
         else dynamic = true
         return
@@ -163,7 +220,7 @@ function auditCommand(
   violations: GuardViolation[],
 ): void {
   // 赋值前缀(FOO=/etc/x cat $FOO)→ 本命令内的常量传播
-  const env = new Map<string, string>()
+  const env = baseEnv(workspacePath)
   for (const assignment of command.prefix) {
     if (!assignment.name) continue
     const resolved = resolveWord(assignment.value, env)
@@ -203,8 +260,7 @@ function auditCommand(
         })
         continue
       }
-      const normalized = normalizeBashPath(candidate)
-      if (normalized === null || !isPathWithinWorkspace(workspacePath, normalized)) {
+      if (!isAllowedTargetPath(candidate, workspacePath)) {
         violations.push({
           source: `${nameText} 参数`,
           target: `「${candidate}」位于工作区之外`,
@@ -228,7 +284,7 @@ function auditRedirect(
   if (!FILE_REDIRECT_OPERATORS.has(redirect.operator)) return
   const target = redirect.target
   if (!target || target.text === '') return
-  const resolved = resolveWord(target, new Map())
+  const resolved = resolveWord(target, baseEnv(workspacePath))
   if (resolved.dynamic) {
     violations.push({
       source: `${commandName} 重定向 ${redirect.operator}`,
@@ -236,8 +292,7 @@ function auditRedirect(
     })
     return
   }
-  const normalized = normalizeBashPath(resolved.value)
-  if (normalized === null || !isPathWithinWorkspace(workspacePath, normalized)) {
+  if (!isAllowedTargetPath(resolved.value, workspacePath)) {
     violations.push({
       source: `${commandName} 重定向 ${redirect.operator}`,
       target: `「${resolved.value}」位于工作区之外`,
@@ -427,10 +482,10 @@ export function guardPathTool<T extends ToolDefinition>(definition: T, workspace
   definition.execute = async (toolCallId, params, signal, onUpdate, ctx) => {
     const rawPath = (params as { path?: unknown }).path
     if (typeof rawPath === 'string' && rawPath !== '') {
-      const resolved = path.resolve(workspacePath, rawPath)
-      if (!isPathWithinWorkspace(workspacePath, resolved)) {
+      if (!isAllowedTargetPath(rawPath, workspacePath)) {
         throw new Error(
-          `工作区边界拦截:${definition.name} 尝试访问工作区之外的路径「${rawPath}」(解析为 ${resolved})。` +
+          `工作区边界拦截:${definition.name} 尝试访问工作区之外的路径「${rawPath}」` +
+            `(解析为 ${path.resolve(workspacePath, rawPath)})。` +
             `\n工作区:${workspacePath}\n请将操作限制在该工作区目录内。`,
         )
       }
