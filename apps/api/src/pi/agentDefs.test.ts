@@ -69,7 +69,9 @@ describe('parseAgentFile / 内置定义', () => {
     expect(executor.frontmatter.write).toContain('**')
     for (const name of ['explorer', 'planner', 'reviewer']) {
       const def = parseAgentFile(path.join(BUILTIN_AGENTS_DIR, `${name}.md`))
-      expect(def.frontmatter.write?.some((w) => w.includes('01-exploration.md') || w.includes('02-plan.md') || w.includes('04-review.md'))).toBe(true)
+      // 方案 B:白名单为 NN-role-*.md 模式(含基名前缀;旧名 NN-role.md 不再可写)
+      expect(def.frontmatter.write?.some((w) => w.includes('01-exploration') || w.includes('02-plan') || w.includes('04-review'))).toBe(true)
+      expect(def.frontmatter.write?.some((w) => w.endsWith('-*.md'))).toBe(true)
     }
   })
 })
@@ -129,6 +131,14 @@ describe('compileWriteMatcher / isWriteAllowed', () => {
     expect(isWriteAllowed('.wf-runs/r1/02-plan.md', m)).toBe(false)
     expect(isWriteAllowed('.wf-runs/a/b/01-exploration.md', m)).toBe(false) // * 不跨层
     expect(isWriteAllowed('01-exploration.md', m)).toBe(false)
+  })
+
+  it('方案 B 新模式 NN-role-*.md:允许序号文件,结构性拒绝旧名', () => {
+    const m = compileWriteMatcher(['.wf-runs/*/01-exploration-*.md'])
+    expect(isWriteAllowed('.wf-runs/r1/01-exploration-2.md', m)).toBe(true)
+    expect(isWriteAllowed('.wf-runs/r1/01-exploration-1.md', m)).toBe(true)
+    expect(isWriteAllowed('.wf-runs/r1/01-exploration.md', m)).toBe(false) // 旧名不可写(缺 -N 段)
+    expect(isWriteAllowed('.wf-runs/a/b/01-exploration-1.md', m)).toBe(false) // * 不跨层
   })
 
   it('目录 glob', () => {

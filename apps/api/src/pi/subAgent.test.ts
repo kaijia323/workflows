@@ -5,8 +5,14 @@
  * 若无条件镜像,前端模态窗会出现一条条只有闪烁光标(showCaretRow)的空消息。
  */
 import { describe, expect, it } from 'vitest'
+import path from 'node:path'
+import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import type { AgentSessionEvent } from '@earendil-works/pi-coding-agent'
-import { toSubEvents } from './subAgent.js'
+import type { Workspace } from '@workflows/shared'
+import type { AgentDefinition } from './agentDefs.js'
+import type { RunFile } from './runManager.js'
+import { detectArtifact, nextArtifactName, toSubEvents } from './subAgent.js'
 
 function msgEvent(role: string, timestamp = 1): AgentSessionEvent {
   return {
@@ -17,6 +23,36 @@ function msgEvent(role: string, timestamp = 1): AgentSessionEvent {
       timestamp,
     },
   } as unknown as AgentSessionEvent
+}
+
+function makeRun(runId = 'r1', agents: Array<{ agent: string }> = []): RunFile {
+  return {
+    runId,
+    sessionId: 's1',
+    status: 'planning',
+    gate: { pending: false, planFile: null },
+    createdAt: 0,
+    updatedAt: 0,
+    agents: agents.map((a, i) => ({
+      callId: `c${i}`,
+      agent: a.agent,
+      summary: '',
+      artifact: null,
+      sessionFile: null,
+      ts: 0,
+    })),
+  } as RunFile
+}
+
+function makeDef(name: string, write?: string[]): AgentDefinition {
+  return { source: 'test', frontmatter: { name, ...(write ? { write } : {}) }, body: 'x' }
+}
+
+function makeWorkspace(): { dir: string; workspace: Workspace } {
+  const dir = mkdtempSync(path.join(tmpdir(), 'wf-sub-'))
+  mkdirSync(path.join(dir, '.wf-runs', 'r1'), { recursive: true })
+  const workspace = { id: 'w1', path: dir } as unknown as Workspace
+  return { dir, workspace }
 }
 
 describe('toSubEvents 事件镜像', () => {
@@ -37,5 +73,98 @@ describe('toSubEvents 事件镜像', () => {
     expect(events).toEqual([
       { type: 'sub_message_start', callId: 'c1', role: 'assistant', id: '1-assistant', text: undefined },
     ])
+  })
+})
+
+describe('nextArtifactName 序号命名(方案 B)', () => {
+  it('空 run → 01-exploration-1.md(从 1 起)', () => {
+    expect(nextArtifactName(makeRun(), 'explorer')).toBe('01-exploration-1.md')
+  })
+
+  it('已有 1 条 explorer → 01-exploration-2.md', () => {
+    expect(nextArtifactName(makeRun('r1', [{ agent: 'explorer' }]), 'explorer')).toBe('01-exploration-2.md')
+  })
+
+  it('reviewer 2 条后 → 04-review-3.md(含失败调用也计数)', () => {
+    const run = makeRun('r1', [{ agent: 'reviewer' }, { agent: 'reviewer' }])
+    expect(nextArtifactName(run, 'reviewer')).toBe('04-review-3.md')
+  })
+
+  it('executor 序号同样递增', () => {
+    expect(nextArtifactName(makeRun('r1', [{ agent: 'executor' }]), 'executor')).toBe('03-execution-2.md')
+  })
+
+  it('未知角色 → null(自定义代理不注入产物文件指令)', () => {
+    expect(nextArtifactName(makeRun(), 'my-agent')).toBeNull()
+  })
+})
+
+describe('detectArtifact 产物检测(方案 B)', () => {
+  it('预期名精确命中 → 返回预期路径(快路径)', () => {
+    const { dir, workspace } = makeWorkspace()
+    try {
+      writeFileSync(path.join(dir, '.wf-runs', 'r1', '01-exploration-1.md'), 'x')
+      const p = detectArtifact(workspace, makeRun(), makeDef('explorer'), '01-exploration-1.md')
+      expect(p).toBe(path.join('.wf-runs', 'r1', '01-exploration-1.md'))
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('预期名缺失但旧名存在 → 前缀扫描返回旧名(容错)', () => {
+    const { dir, workspace } = makeWorkspace()
+    try {
+      writeFileSync(path.join(dir, '.wf-runs', 'r1', '01-exploration.md'), 'x')
+      const p = detectArtifact(workspace, makeRun(), makeDef('explorer'), '01-exploration-1.md')
+      expect(p).toBe(path.join('.wf-runs', 'r1', '01-exploration.md'))
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('多个序号文件 → 取最新 mtime;同时刻按文件名降序', () => {
+    const { dir, workspace } = makeWorkspace()
+    try {
+      const f1 = path.join(dir, '.wf-runs', 'r1', '01-exploration-1.md')
+      const f2 = path.join(dir, '.wf-runs', 'r1', '01-exploration-2.md')
+      writeFileSync(f1, 'a')
+      writeFileSync(f2, 'b')
+      utimesSync(f1, 1000, 1000)
+      utimesSync(f2, 2000, 2000)
+      expect(detectArtifact(workspace, makeRun(), makeDef('explorer'), null)).toBe(
+        path.join('.wf-runs', 'r1', '01-exploration-2.md'),
+      )
+      utimesSync(f1, 3000, 3000)
+      utimesSync(f2, 3000, 3000)
+      expect(detectArtifact(workspace, makeRun(), makeDef('explorer'), null)).toBe(
+        path.join('.wf-runs', 'r1', '01-exploration-2.md'),
+      )
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('目录无匹配 → null', () => {
+    const { dir, workspace } = makeWorkspace()
+    try {
+      expect(detectArtifact(workspace, makeRun(), makeDef('explorer'), null)).toBeNull()
+      expect(detectArtifact(workspace, makeRun(), makeDef('explorer'), '01-exploration-1.md')).toBeNull()
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('自定义代理回退:白名单单层 * 替换 runId 精确 existsSync', () => {
+    const { dir, workspace } = makeWorkspace()
+    try {
+      writeFileSync(path.join(dir, '.wf-runs', 'r1', 'report.md'), 'x')
+      const def = makeDef('my-agent', ['.wf-runs/*/report.md'])
+      // 自定义分支返回白名单模式串(正斜杠,与原实现一致),非 path.join 结果
+      expect(detectArtifact(workspace, makeRun(), def, null)).toBe('.wf-runs/r1/report.md')
+      // 预期名快路径走 path.join(平台分隔符,与 run.json 记录一致)
+      expect(detectArtifact(workspace, makeRun(), def, 'report.md')).toBe(path.join('.wf-runs', 'r1', 'report.md'))
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
   })
 })

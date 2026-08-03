@@ -61,17 +61,17 @@ write: [...]             # 可写目标;省略 = 纯只读;** = 全量写
 - 值类型宽松:数组与单个字符串都接受,解析时统一转数组
 - `write` 匹配语义:**相对工作区根**的逐段 glob(picomatch 风格)
   - `*.md` 只匹配根级,`**` 任意层级,`docs/**` 子目录
-  - 产物动态目录用单层 `*` 匹配 runId:`.wf-runs/*/01-exploration.md`
+  - 产物动态目录用单层 `*` 匹配 runId:`.wf-runs/*/01-exploration-*.md`(`-N` 为同 run 内同角色调用序号)
   - 绝对路径、`..` 一律拒绝(沿用 workspaceGuard 哲学);glob 解析失败一律拒绝,不静默放行
 
 ### 3.3 内置四个子代理
 
 | 代理 | 职责 | write |
 | --- | --- | --- |
-| explorer | 探索仓库需求,产出调研报告 | `.wf-runs/*/01-exploration.md` |
-| planner | 基于探索报告出实施计划 | `.wf-runs/*/02-plan.md` |
+| explorer | 探索仓库需求,产出调研报告 | `.wf-runs/*/01-exploration-*.md` |
+| planner | 基于探索报告出实施计划 | `.wf-runs/*/02-plan-*.md` |
 | executor | 按计划改代码 | `**`(全量写) |
-| reviewer | 对照计划审查改动,diff 校验,输出 pass/fail + 问题清单 | `.wf-runs/*/04-review.md` |
+| reviewer | 对照计划审查改动,diff 校验,输出 pass/fail + 问题清单 | `.wf-runs/*/04-review-*.md` |
 
 主代理(`orchestrator.md`):`agents: [explorer, planner, executor, reviewer]`,自身只保留只读工具(路由查证用),正文为调度策略(闸门触发时机、循环控制规则)。
 
@@ -80,7 +80,7 @@ write: [...]             # 可写目标;省略 = 纯只读;** = 全量写
 | 子代理 | 读 | 写 |
 | --- | --- | --- |
 | explorer / planner / reviewer | 全量只读(read / ls / fff-find / fff-grep) | 白名单(各自产物文件) |
-| executor | 同上 | 全量写(bash / edit / write)+ `03-execution.md` |
+| executor | 同上 | 全量写(bash / edit / write)+ `03-execution-*.md` |
 
 实现:基于现有 `guardPathTool` 扩展「白名单可写」模式(只读工具集 + 限定可写文件的 write 工具);executor 复用现有读写工作区完整工具集。搜索工具只有 fff(内置 grep/find 已废弃,不开放)。
 
@@ -90,6 +90,7 @@ write: [...]             # 可写目标;省略 = 纯只读;** = 全量写
 
 - **run 绑定「会话内的一次需求处理」**,不是与会话 1:1——一个会话可连续多次下发需求,产物各自隔离
 - 开启规则(服务端判定):用户发新消息时,当前会话有**进行中**的 run(status 非 done)→ 归并进该 run(闸门续跑即此场景);否则 → 新建 run(新 runId)
+- **回合释放**:回合结束(status 置 done)后服务端释放内存中的 run(`handle.run = null`),同一会话的下一个需求自动开新 run、新产物目录;仅 awaiting_approval(闸门等待)归并同一 run
 - 删除会话**不删** `.wf-runs/` 产物(已进 git,是用户资产);`run.json` 的 sessionId 是归属索引
 
 ### 5.2 产物黑板(工作区,git 可追踪)
@@ -97,11 +98,13 @@ write: [...]             # 可写目标;省略 = 纯只读;** = 全量写
 ```
 <工作区>/.wf-runs/<runId>/
 ├── run.json              ← { status, phase, gate, sessionId, artifacts[] }
-├── 01-exploration.md     ← explorer 产物(planner 输入)
-├── 02-plan.md            ← planner 产物(闸门批准的就是这份)
-├── 03-execution.md       ← executor 执行摘要 + 改动清单
-└── 04-review.md          ← reviewer 审查报告(多轮覆盖最新,标注「第 N 轮」,历史由 git 兜底)
+├── 01-exploration-1.md   ← explorer 产物(planner 输入;同角色多次调用按序号递增)
+├── 02-plan-1.md          ← planner 产物(闸门批准的就是最新一份)
+├── 03-execution-1.md     ← executor 执行摘要 + 改动清单
+└── 04-review-1.md        ← reviewer 审查报告(每轮独立文件,历史全部保留)
 ```
+
+- 产物命名规则:`NN-role-N.md`——`NN-role` 沿用角色基名(`01-exploration` / `02-plan` / `03-execution` / `04-review`),`N` 为该 run 内同角色**已发生调用次数 + 1**(含失败调用);旧名 `NN-role.md` 结构性不可写(白名单只留 `-N.md` 模式),同一 run 内多轮调用各自独立文件,互不覆盖
 
 run 状态机:`planning → awaiting_approval → executing → reviewing → done`。
 
@@ -122,7 +125,7 @@ tool_start      {toolName: 'explorer', callId: 'c1'}        ← 主代理视角(
 sub_message_start {callId: 'c1', role: 'assistant'}          ← 子代理内部镜像
 sub_tool_start    {callId: 'c1', toolName: 'read', ...}
 sub_text_delta    {callId: 'c1', delta: '...'}
-sub_end           {callId: 'c1', summary, artifact: '.wf-runs/r1/01-exploration.md'}
+sub_end           {callId: 'c1', summary, artifact: '.wf-runs/r1/01-exploration-1.md'}
 tool_end        {callId: 'c1', toolName: 'explorer', output: '<摘要>'}
 ```
 

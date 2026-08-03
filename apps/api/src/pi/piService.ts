@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { Type } from 'typebox'
 import type { Api, Model, ModelThinkingLevel } from '@earendil-works/pi-ai'
@@ -616,6 +616,9 @@ export class PiAgentService {
           run.gate.pending = false
         }
         saveRun(workspace.path, run)
+        // 方案 A:回合结束释放 run——done 的 run 不再被本会话后续需求复用
+        // (对齐 docs/dag-workflow.md §5.1「进行中归并,否则新建」;awaiting_approval 不置空,闸门续跑仍归并)
+        if (run.status === 'done') handle.run = null
       }
       unsubscribe()
       handle.busy = false
@@ -637,7 +640,9 @@ export class PiAgentService {
       listRuns(workspace.path).find((r) => r.sessionId === sessionId) ??
       null
     if (!run) return null
-    if (handle && !handle.run) handle.run = run
+    // 方案 A 配套:只回填非 done run——否则磁盘上已完成的 run 会被重新挂回 handle,
+    // 下一任务再次复用旧 runId,回合释放(handle.run = null)失效
+    if (handle && !handle.run && run.status !== 'done') handle.run = run
     return toSnapshot(run)
   }
 
@@ -731,8 +736,26 @@ function stringifyResult(result: unknown): string {
   }
 }
 
-/** 检测计划文件是否存在(相对工作区根);不存在返回 null */
+/**
+ * 检测计划文件(相对工作区根);不存在返回 null。
+ * 前缀扫描:取 run 目录下最新 `02-plan*.md`(支持首次 02-plan-1.md 与重做 02-plan-2.md)。
+ */
 function detectPlanFile(workspacePath: string, run: RunFile): string | null {
-  const p = path.join('.wf-runs', run.runId, '02-plan.md')
-  return existsSync(path.join(workspacePath, p)) ? p : null
+  const dir = path.join(workspacePath, '.wf-runs', run.runId)
+  let entries: string[]
+  try {
+    entries = readdirSync(dir)
+  } catch {
+    return null
+  }
+  const matches = entries
+    .filter((name) => name.startsWith('02-plan') && name.endsWith('.md'))
+    .map((name) => {
+      const stat = statSync(path.join(dir, name), { throwIfNoEntry: false })
+      return { name, isFile: stat?.isFile() ?? false, mtimeMs: stat?.mtimeMs ?? 0 }
+    })
+    .filter((m) => m.isFile)
+  if (matches.length === 0) return null
+  matches.sort((a, b) => b.mtimeMs - a.mtimeMs || (a.name < b.name ? 1 : -1))
+  return path.join('.wf-runs', run.runId, matches[0].name)
 }

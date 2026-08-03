@@ -6,7 +6,7 @@
  * - system prompt 经 DefaultResourceLoader 注入(SDK 原生支持,无需 hack)
  * - 内部事件经 mapSessionEvent 镜像为 sub_* 事件,挂载在主代理工具调用的 callId 下
  */
-import { existsSync } from 'node:fs'
+import { existsSync, readdirSync, statSync } from 'node:fs'
 import path from 'node:path'
 import type { Api, Model } from '@earendil-works/pi-ai'
 import {
@@ -41,12 +41,27 @@ export interface SubAgentResult {
   sessionFile: string | null
 }
 
-/** 产物文件与角色的映射(内置约定;自定义代理可从 write 白名单推导) */
+/**
+ * 产物文件基名与角色的映射(内置约定;自定义代理可从 write 白名单推导)。
+ * 值即旧名 `NN-role.md`,仅用于推导序号名 `NN-role-N.md`(nextArtifactName)与
+ * 检测前缀扫描(detectArtifact)。
+ */
 const ROLE_ARTIFACT: Record<string, string> = {
   explorer: '01-exploration.md',
   planner: '02-plan.md',
   executor: '03-execution.md',
   reviewer: '04-review.md',
+}
+
+/**
+ * 本次调用的产物文件名:同 run 同角色第 N 次调用 → `NN-role-N.md`(从 1 起)。
+ * 计数含失败调用(run.agents 已记录),保证按调用顺序稳定递增;自定义角色返回 null。
+ */
+export function nextArtifactName(run: RunFile, roleName: string): string | null {
+  const base = ROLE_ARTIFACT[roleName]
+  if (!base) return null
+  const seq = run.agents.filter((a) => a.agent === roleName).length + 1
+  return `${base.replace(/\.md$/, '')}-${seq}.md`
 }
 
 export interface RunSubAgentOptions {
@@ -221,13 +236,29 @@ function extractSummary(session: AgentSession): string {
   return '(子代理未产出文本摘要)'
 }
 
-/** 子代理结束时产物文件检测(相对工作区根) */
-function detectArtifact(workspace: Workspace, run: RunFile, definition: AgentDefinition): string | null {
+/**
+ * 子代理结束时产物文件检测(相对工作区根)。导出供单测。
+ * 优先级:
+ * 1. 精确命中:服务端注入的预期名(expectedName)存在 → 直接返回(快路径)
+ * 2. 前缀扫描兜底:内置角色按 ROLE_ARTIFACT 基名推导前缀,取 run 目录下最新命中文件
+ *    (覆盖模型写成旧名/近似名的容错)
+ * 3. 自定义代理:保留原逻辑(白名单单层 * 替换 runId 后精确 existsSync)
+ */
+export function detectArtifact(
+  workspace: Workspace,
+  run: RunFile,
+  definition: AgentDefinition,
+  expectedName: string | null,
+): string | null {
+  if (expectedName) {
+    const p = path.join('.wf-runs', run.runId, expectedName)
+    if (workspaceHasFile(workspace.path, p)) return p
+  }
   const roleName = definition.frontmatter.name
   const fixed = ROLE_ARTIFACT[roleName]
   if (fixed) {
-    const p = path.join('.wf-runs', run.runId, fixed)
-    return workspaceHasFile(workspace.path, p) ? p : null
+    const prefix = fixed.replace(/\.md$/, '')
+    return newestArtifactInRunDir(workspace.path, run, (name) => name.startsWith(prefix) && name.endsWith('.md'))
   }
   // 自定义代理:从 write 白名单推导(单层 * 匹配 runId 的产物模式)
   const patterns = definition.frontmatter.write ?? []
@@ -242,6 +273,34 @@ function detectArtifact(workspace: Workspace, run: RunFile, definition: AgentDef
 
 function workspaceHasFile(workspacePath: string, relPath: string): boolean {
   return existsSync(path.join(workspacePath, relPath))
+}
+
+/**
+ * run 产物目录中最新命中谓词的文件(相对工作区根);无则 null。
+ * 排序:(mtimeMs, 文件名)双键降序——同时刻按文件名降序,保证确定性。
+ */
+function newestArtifactInRunDir(
+  workspacePath: string,
+  run: RunFile,
+  predicate: (name: string) => boolean,
+): string | null {
+  const dir = path.join(workspacePath, '.wf-runs', run.runId)
+  let entries: string[]
+  try {
+    entries = readdirSync(dir)
+  } catch {
+    return null
+  }
+  const matches = entries
+    .filter((name) => predicate(name))
+    .map((name) => {
+      const stat = statSync(path.join(dir, name), { throwIfNoEntry: false })
+      return { name, isFile: stat?.isFile() ?? false, mtimeMs: stat?.mtimeMs ?? 0 }
+    })
+    .filter((m) => m.isFile)
+  if (matches.length === 0) return null
+  matches.sort((a, b) => b.mtimeMs - a.mtimeMs || (a.name < b.name ? 1 : -1))
+  return path.join('.wf-runs', run.runId, matches[0].name)
 }
 
 /** 子代理执行失败(携带会话文件,供失败调用在模态窗回看) */
@@ -298,10 +357,16 @@ export async function runSubAgent(options: RunSubAgentOptions): Promise<SubAgent
   })
 
   try {
+    // 方案 B:调用前按 run.agents 同角色计数算序号,注入权威产物文件名
+    // (白名单只允许 `NN-role-*.md`,模型无自由度写旧名覆盖历史产物)
+    const artifactName = nextArtifactName(run, name)
     const runDirRel = `.wf-runs/${run.runId}`
-    await session.prompt(`${task}\n\n产物目录(相对工作区根):${runDirRel}\n最终回复只给摘要。`)
+    const promptText = artifactName
+      ? `${task}\n\n产物目录(相对工作区根):${runDirRel}\n产物文件:${`.wf-runs/${run.runId}/${artifactName}`}\n最终回复只给摘要。`
+      : `${task}\n\n产物目录(相对工作区根):${runDirRel}\n最终回复只给摘要。`
+    await session.prompt(promptText)
     const summary = extractSummary(session)
-    const artifact = detectArtifact(workspace, run, definition)
+    const artifact = detectArtifact(workspace, run, definition, artifactName)
     const sessionFile = session.sessionFile ? path.relative(store.agentDir, session.sessionFile) : null
     session.dispose()
     return { summary, artifact, sessionFile }
