@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import type { UiMessage } from '../composables/useAgent'
 import { toolLabel } from '../composables/useAgent'
+import { renderMarkdown } from '../utils/markdown'
 
 const props = defineProps<{ message: UiMessage }>()
 const emit = defineEmits<{
@@ -12,6 +13,13 @@ const emit = defineEmits<{
 const hasContent = computed(() => {
   const m = props.message
   return m.text.length > 0 || m.thinking.length > 0 || m.tools.length > 0
+})
+
+/** 正文 HTML;流式时在末尾注入光标,精确跟随最后渲染的字符 */
+const bodyHtml = computed(() => {
+  let html = renderMarkdown(props.message.text)
+  if (props.message.status === 'streaming') html += '<span class="caret"></span>'
+  return html
 })
 
 function formatTokens(n: number | undefined): string {
@@ -28,9 +36,10 @@ function formatTokens(n: number | undefined): string {
     class="flex justify-end pl-12"
   >
     <div class="max-w-[85%] border border-signal/30 bg-signal/[0.05] px-3.5 py-2.5">
-      <p class="whitespace-pre-wrap break-words text-[13px] leading-relaxed text-fg">
-        {{ message.text }}
-      </p>
+      <div
+        class="md break-words text-[13px] leading-relaxed text-fg"
+        v-html="renderMarkdown(message.text)"
+      />
     </div>
   </div>
 
@@ -76,12 +85,10 @@ function formatTokens(n: number | undefined): string {
         v-if="hasContent"
         class="px-3.5 py-3"
       >
-        <p class="whitespace-pre-wrap break-words text-[13px] leading-relaxed text-fg">
-          {{ message.text }}<span
-            v-if="message.status === 'streaming'"
-            class="caret"
-          />
-        </p>
+        <div
+          class="md break-words text-[13px] leading-relaxed text-fg"
+          v-html="bodyHtml"
+        />
         <p
           v-if="message.status === 'error' && message.errorText"
           class="mt-2 font-mono text-[11px] text-err"
@@ -148,7 +155,8 @@ function formatTokens(n: number | undefined): string {
 </template>
 
 <style scoped>
-.caret {
+.caret,
+:deep(.caret) {
   display: inline-block;
   width: 6px;
   height: 13px;
@@ -156,5 +164,161 @@ function formatTokens(n: number | undefined): string {
   vertical-align: text-bottom;
   background: var(--color-signal);
   animation: caret-blink 0.9s steps(2) infinite;
+}
+
+/* ---- markdown 正文:与「管线控制台」token 统一 ---- */
+:deep(.md) p {
+  margin: 0.4em 0;
+}
+:deep(.md) p:first-child,
+:deep(.md) ul:first-child,
+:deep(.md) ol:first-child,
+:deep(.md) pre:first-child,
+:deep(.md) blockquote:first-child,
+:deep(.md) table:first-child,
+:deep(.md) h1:first-child,
+:deep(.md) h2:first-child,
+:deep(.md) h3:first-child,
+:deep(.md) h4:first-child {
+  margin-top: 0;
+}
+:deep(.md) p:last-child,
+:deep(.md) ul:last-child,
+:deep(.md) ol:last-child,
+:deep(.md) pre:last-child,
+:deep(.md) blockquote:last-child,
+:deep(.md) table:last-child,
+:deep(.md) h1:last-child,
+:deep(.md) h2:last-child,
+:deep(.md) h3:last-child,
+:deep(.md) h4:last-child {
+  margin-bottom: 0;
+}
+
+/* 标题:显示字体 + 信号琥珀点缀,保持仪表台气质 */
+:deep(.md) h1,
+:deep(.md) h2,
+:deep(.md) h3,
+:deep(.md) h4 {
+  margin: 0.7em 0 0.3em;
+  font-family: var(--font-display);
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--color-fg);
+}
+:deep(.md) h1 {
+  font-size: 1.1em;
+  border-bottom: 1px solid var(--color-edge);
+  padding-bottom: 0.25em;
+}
+:deep(.md) h2 {
+  font-size: 1.05em;
+}
+:deep(.md) h3,
+:deep(.md) h4 {
+  font-size: 1em;
+}
+
+/* 代码块:墨底 + 线缆蓝左边条,与工具输出的 pre 呼应 */
+:deep(.md) pre {
+  margin: 0.5em 0;
+  padding: 8px 10px;
+  overflow-x: auto;
+  background: var(--color-ink);
+  border: 1px solid var(--color-edge);
+  border-left: 2px solid var(--color-wire-dim);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.55;
+  color: var(--color-dim);
+}
+:deep(.md) code {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  padding: 0.1em 0.35em;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--color-edge) 55%, transparent);
+}
+:deep(.md) pre code {
+  padding: 0;
+  background: transparent;
+  font-size: inherit;
+  color: inherit;
+}
+
+/* 链接:线缆蓝,新窗口打开 */
+:deep(.md) a {
+  color: var(--color-wire);
+  text-decoration: underline;
+  text-decoration-color: var(--color-wire-dim);
+  text-underline-offset: 2px;
+}
+:deep(.md) a:hover {
+  color: var(--color-signal);
+  text-decoration-color: var(--color-signal-dim);
+}
+
+/* 列表 / 引用 / 分割线 */
+:deep(.md) ul {
+  margin: 0.4em 0;
+  padding-left: 1.3em;
+  list-style: disc;
+}
+:deep(.md) ol {
+  margin: 0.4em 0;
+  padding-left: 1.3em;
+  list-style: decimal;
+}
+:deep(.md) li {
+  margin: 0.15em 0;
+}
+:deep(.md) li > ul,
+:deep(.md) li > ol {
+  margin: 0.15em 0;
+}
+:deep(.md) blockquote {
+  margin: 0.5em 0;
+  padding: 0.1em 0 0.1em 0.8em;
+  border-left: 2px solid var(--color-wire-dim);
+  color: var(--color-dim);
+}
+:deep(.md) hr {
+  margin: 0.7em 0;
+  border: none;
+  border-top: 1px solid var(--color-edge);
+}
+
+/* 表格:仪表盘式的细边框网格 */
+:deep(.md) table {
+  margin: 0.5em 0;
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.95em;
+}
+:deep(.md) th,
+:deep(.md) td {
+  border: 1px solid var(--color-edge);
+  padding: 4px 8px;
+  text-align: left;
+}
+:deep(.md) th {
+  background: var(--color-raised);
+  font-family: var(--font-display);
+  font-size: 0.92em;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+}
+
+:deep(.md) strong {
+  color: var(--color-fg);
+  font-weight: 600;
+}
+:deep(.md) del {
+  color: var(--color-faint);
+}
+:deep(.md) input[type='checkbox'] {
+  margin-right: 0.4em;
+  accent-color: var(--color-signal);
+  vertical-align: -2px;
 }
 </style>

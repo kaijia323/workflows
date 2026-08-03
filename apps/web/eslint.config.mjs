@@ -32,6 +32,8 @@ export default tseslint.config(
     rules: {
       // 骨架阶段单文件组件(如 App.vue)允许单单词命名
       'vue/multi-word-component-names': 'off',
+      // v-html 仅在 MessageBubble 受控入口使用,renderMarkdown 已统一转义原生 HTML + 链接协议白名单
+      'vue/no-v-html': 'off',
     },
   },
 )
