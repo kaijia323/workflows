@@ -23,8 +23,10 @@ export interface UiMessage {
   role: 'user' | 'assistant'
   /** 内容片段序列 = 大模型输出顺序,前端按此渲染 */
   segments: UiSegment[]
-  /** 消息级开关:展开/折叠全部思考片段 */
-  thinkingOpen: boolean
+  /** 用户手动操作过的思考块(标记后展开状态完全以用户为准,不再自动收起/展开) */
+  thinkingTouched: Set<string>
+  /** 思考块展开状态:key 为渲染块 key(thinking-N),仅对 thinkingTouched 的块生效 */
+  thinkingOpen: Set<string>
   usage?: SessionStatus['usage']
   model?: string
   status: 'streaming' | 'done' | 'error'
@@ -72,6 +74,44 @@ export function hasThinking(m: UiMessage): boolean {
 /** 查找工具片段 */
 export function findToolSegment(m: UiMessage, callId: string): Extract<UiSegment, { kind: 'tool' }> | undefined {
   return m.segments.find((s): s is Extract<UiSegment, { kind: 'tool' }> => s.kind === 'tool' && s.callId === callId)
+}
+
+/**
+ * 渲染块:把 segments 按输出顺序转成可视块(相邻 text/thinking 合并,
+ * 避免 markdown 被工具调用截断成半截)。key 在流式过程中保持稳定,
+ * 思考块的展开状态按 key 逐个记录,互不影响。
+ */
+export type PlanBlock =
+  | { key: string; kind: 'text' | 'thinking'; text: string }
+  | { key: string; kind: 'tool'; tool: Extract<UiSegment, { kind: 'tool' }> }
+
+export function planBlocks(message: Pick<UiMessage, 'segments'>): PlanBlock[] {
+  const out: PlanBlock[] = []
+  for (const seg of message.segments) {
+    if (seg.kind === 'text' || seg.kind === 'thinking') {
+      const last = out.at(-1)
+      if (last && last.kind === seg.kind) {
+        last.text += seg.text
+      } else {
+        out.push({ key: `${seg.kind}-${out.length}`, kind: seg.kind, text: seg.text })
+      }
+    } else {
+      out.push({ key: `tool-${seg.callId}`, kind: 'tool', tool: seg })
+    }
+  }
+  return out
+}
+
+/**
+ * 思考块展开判定(默认策略):
+ * - 用户手动操作过该块 → 完全以用户状态为准;
+ * - 未操作 → 流式期间「正在思考」的最后一块自动展开;思考结束
+ *   (后续正文/工具插入,或回合结束)自动收起。
+ */
+export function isThinkingBlockOpen(message: UiMessage, blocks: PlanBlock[], key: string): boolean {
+  if (message.thinkingTouched.has(key)) return message.thinkingOpen.has(key)
+  const last = blocks.at(-1)
+  return message.status === 'streaming' && last?.kind === 'thinking' && last.key === key
 }
 
 const TOOL_LABELS: Record<string, string> = {
@@ -207,7 +247,8 @@ export function useAgent() {
           ? { kind: 'tool', callId: block.callId, name: block.name, output: block.output ?? '', isError: block.isError ?? false, collapsed: true }
           : { kind: block.type, text: block.text },
       ),
-      thinkingOpen: false,
+      thinkingTouched: new Set(),
+      thinkingOpen: new Set(),
       usage: item.usage,
       model: item.model,
       status: 'done',
@@ -290,7 +331,8 @@ export function useAgent() {
       id: `u${Date.now()}`,
       role: 'user',
       segments: [{ kind: 'text', text }],
-      thinkingOpen: false,
+      thinkingTouched: new Set(),
+      thinkingOpen: new Set(),
       status: 'done',
     })
   }
@@ -314,7 +356,8 @@ export function useAgent() {
         id: `a${Date.now()}`,
         role: 'assistant',
         segments: [],
-        thinkingOpen: false,
+        thinkingTouched: new Set(),
+        thinkingOpen: new Set(),
         status: 'streaming',
       })
       messages.value.push(pending)
@@ -397,7 +440,8 @@ export function useAgent() {
           role: event.role,
           // user 消息(子代理任务)由后端附带完整文本
           segments: event.text ? [{ kind: 'text', text: event.text }] : [],
-          thinkingOpen: false,
+          thinkingTouched: new Set(),
+          thinkingOpen: new Set(),
           status: 'streaming',
         })
         sub.messages.push(msg)
@@ -538,7 +582,8 @@ export function useAgent() {
           ? { kind: 'tool' as const, callId: block.callId, name: block.name, output: block.output ?? '', isError: block.isError ?? false, collapsed: true }
           : { kind: block.type, text: block.text },
       ),
-      thinkingOpen: false,
+      thinkingTouched: new Set(),
+      thinkingOpen: new Set(),
       status: 'done' as const,
     }))
   }

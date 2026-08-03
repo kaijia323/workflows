@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import type { AgentStore, UiMessage } from '../composables/useAgent'
+import type { AgentStore, PlanBlock, UiMessage } from '../composables/useAgent'
+import { hasThinking, isThinkingBlockOpen, planBlocks } from '../composables/useAgent'
 import MessageBubble from './MessageBubble.vue'
 
 /**
@@ -44,8 +45,28 @@ onMounted(async () => {
   }
 })
 
-function toggleThinking(msg: UiMessage): void {
-  msg.thinkingOpen = !msg.thinkingOpen
+function toggleThinking(msg: UiMessage, key: string): void {
+  msg.thinkingTouched.add(key)
+  if (msg.thinkingOpen.has(key)) msg.thinkingOpen.delete(key)
+  else msg.thinkingOpen.add(key)
+}
+
+/** 全部思考块统一操作:与主会话同一逻辑(按生效状态判断,任一展开则全部收起,否则全部展开;并全部标记为手动) */
+function toggleAllThinking(): void {
+  const entries: Array<{ msg: UiMessage; blocks: PlanBlock[]; key: string }> = []
+  for (const msg of messages.value) {
+    const blocks = planBlocks(msg)
+    for (const block of blocks) {
+      if (block.kind === 'thinking') entries.push({ msg, blocks, key: block.key })
+    }
+  }
+  if (entries.length === 0) return
+  const allOpen = entries.every(({ msg, blocks, key }) => isThinkingBlockOpen(msg, blocks, key))
+  for (const { msg, key } of entries) {
+    msg.thinkingTouched.add(key)
+    if (allOpen) msg.thinkingOpen.delete(key)
+    else msg.thinkingOpen.add(key)
+  }
 }
 
 function toggleTool(msg: UiMessage, callId: string): void {
@@ -81,6 +102,20 @@ function toggleTool(msg: UiMessage, callId: string): void {
           @click="emit('close')"
         >
           ✕
+        </button>
+      </div>
+
+      <!-- 思考块全局操作:与主会话同一逻辑(仅当有思考内容时显示) -->
+      <div
+        v-if="messages.some(hasThinking)"
+        class="flex shrink-0 items-center justify-end border-b border-edge px-5 py-1.5"
+      >
+        <button
+          type="button"
+          class="border border-edge px-2 py-1 font-mono text-[9px] text-faint transition hover:text-fg"
+          @click="toggleAllThinking"
+        >
+          THINKING ⇅
         </button>
       </div>
 

@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import type { UiMessage, UiSegment } from '../composables/useAgent'
-import { messageText, toolLabel } from '../composables/useAgent'
+import type { PlanBlock, UiMessage } from '../composables/useAgent'
+import { isThinkingBlockOpen, messageText, planBlocks, toolLabel } from '../composables/useAgent'
 import { renderMarkdown } from '../utils/markdown'
 
 const props = defineProps<{ message: UiMessage }>()
 const emit = defineEmits<{
-  'toggle-thinking': [message: UiMessage]
+  'toggle-thinking': [message: UiMessage, key: string]
   'toggle-tool': [message: UiMessage, callId: string]
   'tool-click': [message: UiMessage, callId: string, toolName: string]
 }>()
@@ -15,28 +15,13 @@ const emit = defineEmits<{
 const CARET_HTML = '<span class="caret"></span>'
 
 /**
- * 渲染计划:把 segments 按输出顺序转成可视块。
- * 相邻的 text / thinking 片段合并(避免 markdown 被工具调用截断成半截),
- * 流式时光标精确跟随最后一个 text 块。
+ * 渲染计划:segments → 可视块(相邻 text/thinking 合并,key 稳定)。
+ * 思考块展开状态按 key 逐个独立记录;流式时光标精确跟随最后一个 text 块。
  */
-type PlanBlock =
-  | { key: string; kind: 'text' | 'thinking'; text: string; caret?: boolean }
-  | { key: string; kind: 'tool'; tool: Extract<UiSegment, { kind: 'tool' }> }
+type RenderBlock = PlanBlock & { caret?: boolean }
 
-const plan = computed<PlanBlock[]>(() => {
-  const out: PlanBlock[] = []
-  for (const seg of props.message.segments) {
-    if (seg.kind === 'text' || seg.kind === 'thinking') {
-      const last = out.at(-1)
-      if (last && last.kind === seg.kind) {
-        last.text += seg.text
-      } else {
-        out.push({ key: `${seg.kind}-${out.length}`, kind: seg.kind, text: seg.text })
-      }
-    } else {
-      out.push({ key: `tool-${seg.callId}`, kind: 'tool', tool: seg })
-    }
-  }
+const plan = computed<RenderBlock[]>(() => {
+  const out: RenderBlock[] = planBlocks(props.message)
   // 流式光标:跟随最后一个 text 块(与最后一次渲染的字符对齐)
   if (props.message.status === 'streaming') {
     for (let i = out.length - 1; i >= 0; i--) {
@@ -104,17 +89,17 @@ function formatTokens(n: number | undefined): string {
             <button
               type="button"
               class="flex w-full items-center gap-2 px-3.5 py-1.5 text-left font-mono text-[10px] tracking-wider text-wire transition hover:bg-wire/[0.06]"
-              @click="emit('toggle-thinking', message)"
+              @click="emit('toggle-thinking', message, block.key)"
             >
               <span
                 class="inline-block w-3 text-center transition-transform duration-200"
-                :class="message.thinkingOpen ? 'rotate-90' : ''"
+                :class="isThinkingBlockOpen(message, plan, block.key) ? 'rotate-90' : ''"
               >▸</span>
               <span class="text-wire/80">THINKING</span>
               <span class="ml-auto font-mono text-[9px] text-faint">{{ block.text.length }} chars</span>
             </button>
             <pre
-              v-if="message.thinkingOpen"
+              v-if="isThinkingBlockOpen(message, plan, block.key)"
               class="max-h-64 overflow-y-auto whitespace-pre-wrap break-words px-3.5 pb-3 pl-8 font-mono text-[11px] leading-relaxed text-wire/70"
             >{{ block.text }}</pre>
           </div>

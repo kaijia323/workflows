@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { nextTick, onMounted, ref, watch } from 'vue'
-import type { AgentStore, UiMessage } from '../composables/useAgent'
-import { findToolSegment, hasThinking, messageText } from '../composables/useAgent'
+import type { AgentStore, PlanBlock, UiMessage } from '../composables/useAgent'
+import { findToolSegment, hasThinking, isThinkingBlockOpen, messageText, planBlocks } from '../composables/useAgent'
 import MessageBubble from './MessageBubble.vue'
 import SessionSwitcher from './SessionSwitcher.vue'
 
@@ -68,8 +68,30 @@ function onKeydown(event: KeyboardEvent) {
   }
 }
 
-function toggleThinking(message: { thinkingOpen: boolean }) {
-  message.thinkingOpen = !message.thinkingOpen
+/** 单条思考块:用户手动操作,标记后以用户状态为准(不再自动收起/展开) */
+function toggleThinking(message: UiMessage, key: string) {
+  message.thinkingTouched.add(key)
+  const open = message.thinkingOpen
+  if (open.has(key)) open.delete(key)
+  else open.add(key)
+}
+
+/** 全部思考块统一操作:按生效状态(含自动展开的流式块)判断,任一展开则全部收起,否则全部展开;并全部标记为手动 */
+function toggleAllThinking() {
+  const entries: Array<{ message: UiMessage; blocks: PlanBlock[]; key: string }> = []
+  for (const message of props.agent.messages.value) {
+    const blocks = planBlocks(message)
+    for (const block of blocks) {
+      if (block.kind === 'thinking') entries.push({ message, blocks, key: block.key })
+    }
+  }
+  if (entries.length === 0) return
+  const allOpen = entries.every(({ message, blocks, key }) => isThinkingBlockOpen(message, blocks, key))
+  for (const { message, key } of entries) {
+    message.thinkingTouched.add(key)
+    if (allOpen) message.thinkingOpen.delete(key)
+    else message.thinkingOpen.add(key)
+  }
 }
 
 function toggleTool(message: UiMessage, callId: string) {
@@ -331,7 +353,7 @@ async function rejectPlan(): Promise<void> {
           <button
             type="button"
             class="border border-edge px-2 py-1 font-mono text-[9px] text-faint transition hover:text-fg"
-            @click="agent.messages.value.filter(hasThinking).forEach(toggleThinking)"
+            @click="toggleAllThinking"
           >
             THINKING ⇅
           </button>
