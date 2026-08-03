@@ -23,6 +23,7 @@ import { renderHistory } from './history.js'
 import {
   appendRunAgentCall,
   createRun,
+  decideTurnEnd,
   listRuns,
   resolveCurrentRun,
   saveRun,
@@ -71,6 +72,10 @@ interface SessionHandle {
   run: RunFile | null
   /** 本回合是否调用过 wait_for_approval(回合结束时决定 run 状态) */
   turnWaitCalled: boolean
+  /** 本回合是否调用过 complete_task(显式任务完成声明) */
+  turnCompleteCalled: boolean
+  /** 本回合是否调用过子代理(区分中途停止与纯文本交付回合) */
+  turnSubAgentCalled: boolean
 }
 
 /**
@@ -265,6 +270,8 @@ export class PiAgentService {
     }
     // 闸门工具:主代理调用后暂停等待用户批准
     subAgentTools.push(this.createWaitForApprovalTool(workspace))
+    // 任务完成工具:主代理在最终交付时显式声明完成(与闸门对称,置 done + 释放)
+    subAgentTools.push(this.createCompleteTaskTool(workspace))
 
     // 主代理 system prompt:默认 prompt + orchestrator 调度策略(追加,不替换默认规则)
     const mainResourceLoader = createPromptOnlyLoader(undefined, orchestrator ? [orchestrator.body] : undefined)
@@ -313,6 +320,8 @@ export class PiAgentService {
       // 恢复:磁盘上存在未完成 / 待闸门的 run 则沿用(归并),否则下次子代理调用新建
       run: resolveCurrentRun(workspace.path, finalId, null),
       turnWaitCalled: false,
+      turnCompleteCalled: false,
+      turnSubAgentCalled: false,
     }
     this.handles.set(workspace.id, handle)
     return handle
@@ -353,6 +362,8 @@ export class PiAgentService {
       execute: async (callId, params, signal, onUpdate) => {
         const handle = this.handles.get(workspace.id)
         if (!handle) throw new Error('会话已关闭')
+        // 本回合调过子代理(try 外:失败调用也计数 → 回合结束落入 keep 而非 done)
+        handle.turnSubAgentCalled = true
         const run = this.ensureRun(handle)
         // 循环上限兜底(代码级,不依赖模型自觉):
         // 审查⇄执行最多 3 轮;全流程回到 planner 最多 2 次,超限强制收尾
@@ -473,6 +484,42 @@ export class PiAgentService {
     }
   }
 
+  /** 任务完成工具:主代理在最终交付完成时显式声明完成,run 置 done + 释放(与 wait_for_approval 对称) */
+  private createCompleteTaskTool(workspace: Workspace): ToolDefinition {
+    const params = Type.Object({
+      summary: Type.String({ description: '交付总结(已完成内容、关键产物位置)' }),
+    })
+    return {
+      name: 'complete_task',
+      label: 'complete_task',
+      description:
+        '声明当前任务已全部完成(最终交付)。任务交付完成后必须调用此工具并立即结束回合;' +
+        '调用后本任务的 run 标记为完成,下一次新需求将开启新的 run(新产物目录)。',
+      promptSnippet: 'Mark the current task as complete',
+      parameters: params,
+      execute: async (_callId, _params) => {
+        const handle = this.handles.get(workspace.id)
+        if (!handle) throw new Error('会话已关闭')
+        // 与 wait_for_approval 一致:无 run 则新建(罕见,容忍空 done run)
+        const run = this.ensureRun(handle)
+        handle.turnCompleteCalled = true
+        run.status = 'done'
+        run.gate = { pending: false, planFile: null }
+        // 立即落盘:崩溃安全(complete_task 后进程崩溃,任务已完成状态不丢)
+        saveRun(workspace.path, run)
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text: '任务已标记为完成。立即结束回合,向用户做最终交付总结。',
+            },
+          ],
+          details: undefined,
+        }
+      },
+    }
+  }
+
   /** 切换工作区权限(只读/读写),已打开的会话需重建工具集 */
   async reopenIfOpen(workspace: Workspace): Promise<void> {
     const handle = this.handles.get(workspace.id)
@@ -576,8 +623,11 @@ export class PiAgentService {
     if (handle.busy) throw new Error('agent 正在处理中,请稍候')
     handle.busy = true
     handle.lastActivityAt = Date.now()
-    // 新回合:重置闸门标记,挂载事件发射器(子代理工具经此转发 sub_* 事件)
+    // 新回合:重置回合内标志(闸门 / 任务完成 / 子代理调用),挂载事件发射器(子代理工具经此转发 sub_* 事件)
     handle.turnWaitCalled = false
+    handle.turnCompleteCalled = false
+    handle.turnSubAgentCalled = false
+    let turnFailed = false
     this.activeEmitter = onEvent
 
     const unsubscribe = handle.session.subscribe((event) => {
@@ -601,24 +651,38 @@ export class PiAgentService {
       await handle.session.prompt(text)
       onEvent({ type: 'done' })
     } catch (error) {
+      // 回合失败(错误/abort):不处置 run,保守保持(对齐 docs §8「崩溃 = 标记中止 + 手动续跑」)
+      turnFailed = true
       onEvent({ type: 'error', message: error instanceof Error ? error.message : String(error) })
     } finally {
-      // 回合结束:判定 run 状态
-      // - 本回合调用过 wait_for_approval → 保持 awaiting_approval(gate.pending 置回 true)
-      // - 否则 → 需求处理告一段落,run 标记 done(用户下次需求开新 run)
+      // 回合结束:三分支决策(单一事实源:decideTurnEnd)
+      // - 失败(turnFailed)→ keep:不写盘、不释放,下条消息归并
+      // - 闸门(turnWaitCalled)→ awaiting_approval + gate(不释放,闸门续跑归并)
+      // - 完成(turnCompleteCalled)或纯文本交付回合(未调任何子代理/闸门/完成)→ done + 释放
+      // - 其余(调过子代理但中途停止)→ keep:run 保持 executing,下条消息自然归并同 runId
       const run = handle.run
       if (run) {
-        if (handle.turnWaitCalled) {
+        const decision = decideTurnEnd({
+          turnFailed,
+          turnWaitCalled: handle.turnWaitCalled,
+          turnCompleteCalled: handle.turnCompleteCalled,
+          turnSubAgentCalled: handle.turnSubAgentCalled,
+        })
+        if (decision === 'awaiting_approval') {
           run.status = 'awaiting_approval'
           run.gate = { pending: true, planFile: detectPlanFile(workspace.path, run) }
-        } else {
+          saveRun(workspace.path, run)
+        } else if (decision === 'done') {
           run.status = 'done'
           run.gate.pending = false
+          saveRun(workspace.path, run)
+          // 任务完成释放:done 的 run 不再被本会话后续需求复用
+          // (keep / awaiting_approval 分支不置空:前者内存归并,后者闸门续跑归并)
+          handle.run = null
         }
-        saveRun(workspace.path, run)
-        // 方案 A:回合结束释放 run——done 的 run 不再被本会话后续需求复用
-        // (对齐 docs/dag-workflow.md §5.1「进行中归并,否则新建」;awaiting_approval 不置空,闸门续跑仍归并)
-        if (run.status === 'done') handle.run = null
+        // decision === 'keep':不写盘、不释放。
+        // 中途停止回合:status 已在子代理工具 execute 时置 executing 并落盘,
+        // 这里不写盘避免无谓写盘与 updatedAt 漂移;handle.run 保留 → 下回合 ensureRun 直接内存归并。
       }
       unsubscribe()
       handle.busy = false

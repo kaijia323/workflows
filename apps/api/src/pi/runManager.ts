@@ -144,3 +144,25 @@ export function appendRunAgentCall(workspacePath: string, run: RunFile, call: Ru
   else run.agents.push(call)
   saveRun(workspacePath, run)
 }
+
+/** 回合结束决策(纯函数,供 prompt() finally 与单测共用,决策单一事实源) */
+export type TurnEndDecision = 'awaiting_approval' | 'done' | 'keep'
+
+/**
+ * 回合结束决策。
+ * - turnFailed: 回合异常(错误/abort),不做任何处置(任务状态未知,保守保持)
+ * - turnWaitCalled: 闸门优先(即使同时调过 complete_task 也以闸门为准,模型异常行为,闸门胜出)
+ * - turnCompleteCalled || !turnSubAgentCalled: 显式完成 / 纯文本交付回合 → done
+ * - 其余(调过子代理、无闸门、无 complete_task)= 中途停止 → keep(保持 executing,下回合归并)
+ */
+export function decideTurnEnd(flags: {
+  turnFailed: boolean
+  turnWaitCalled: boolean
+  turnCompleteCalled: boolean
+  turnSubAgentCalled: boolean
+}): TurnEndDecision {
+  if (flags.turnFailed) return 'keep'
+  if (flags.turnWaitCalled) return 'awaiting_approval'
+  if (flags.turnCompleteCalled || !flags.turnSubAgentCalled) return 'done'
+  return 'keep'
+}

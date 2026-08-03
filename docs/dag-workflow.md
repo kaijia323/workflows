@@ -90,7 +90,7 @@ write: [...]             # 可写目标;省略 = 纯只读;** = 全量写
 
 - **run 绑定「会话内的一次需求处理」**,不是与会话 1:1——一个会话可连续多次下发需求,产物各自隔离
 - 开启规则(服务端判定):用户发新消息时,当前会话有**进行中**的 run(status 非 done)→ 归并进该 run(闸门续跑即此场景);否则 → 新建 run(新 runId)
-- **回合释放**:回合结束(status 置 done)后服务端释放内存中的 run(`handle.run = null`),同一会话的下一个需求自动开新 run、新产物目录;仅 awaiting_approval(闸门等待)归并同一 run
+- **任务完成释放**:任务完成(status 置 done,由 `complete_task` 工具或纯文本交付回合触发)后服务端释放内存中的 run(`handle.run = null`),同一会话的下一个需求自动开新 run、新产物目录;闸门等待(awaiting_approval)与**中途停止回合(调过子代理但未到闸门/完成)**均不释放——前者靠 gate.pending 归并,后者 run 保持 executing,下一条消息自然归并同一 runId
 - 删除会话**不删** `.wf-runs/` 产物(已进 git,是用户资产);`run.json` 的 sessionId 是归属索引
 
 ### 5.2 产物黑板(工作区,git 可追踪)
@@ -153,6 +153,8 @@ planner 完成 → 主代理调用 wait_for_approval 工具(prompt 指示:计划
 - 闸门时机由主代理控制(prompt 指示),服务端零检测逻辑
 - 优点:复用现有接口,无长连接、无异步工具结果;断线/重启后闸门点天然可恢复
 
+**任务完成**:orchestrator 在最终交付完成时调用 `complete_task` 工具(与 `wait_for_approval` 同构的普通工具,参数 `summary`)→ 服务端置 run 为 `done` 并释放内存 run,下一次新需求开启新 runId、新产物目录;纯文本交付回合(本回合未调任何子代理/闸门/完成工具)为服务端兜底,自动置 done。回合失败(错误/abort)不做任何处置,run 保持进行中,续跑归并同一 runId。
+
 ## 8. 恢复与可靠性
 
 **核心原则:事件易失,状态落盘;恢复 = 拉快照重建 UI,不重放事件。**
@@ -203,3 +205,4 @@ planner 完成 → 主代理调用 wait_for_approval 工具(prompt 指示:计划
 - 闸门回合制,无长连接
 - 恢复:状态落盘 + 快照重建;崩溃 = 标记中止 + 手动续跑
 - 循环上限:执行⇄审查 3 轮,回 planner 2 次,代码兜底
+- 任务边界 = 显式 `complete_task` / 纯文本交付回合;中途停止回合不释放 run(方案 c1,修复 fd6057f 回合级释放副作用,一个任务一个 runId)
