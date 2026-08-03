@@ -191,3 +191,68 @@ describe('run 生命周期:任务粒度归并/释放', () => {
     }
   })
 })
+
+describe('done 冻结:done 后 run.json 不再改写', () => {
+  it('done 冻结:首次 done 落盘成功(崩溃安全),之后写盘不再改动文件', () => {
+    const dir = makeWorkspace()
+    try {
+      const sessionId = 's1'
+      const run = createRun(dir, sessionId)
+      run.status = 'executing'
+      saveRun(dir, run)
+      // complete_task 语义:首次 done 写盘必须成功
+      run.status = 'done'
+      run.gate = { pending: false, planFile: null }
+      saveRun(dir, run)
+      expect(loadRun(dir, run.runId)?.status).toBe('done')
+      const frozen = readFileSync(path.join(dir, '.wf-runs', run.runId, 'run.json'), 'utf-8')
+      // 模拟 finally 重复写 / 同回合改写企图:内容与 updatedAt 均不得变化
+      run.updatedAt = 0
+      run.gate = { pending: true, planFile: 'x' }
+      saveRun(dir, run)
+      expect(readFileSync(path.join(dir, '.wf-runs', run.runId, 'run.json'), 'utf-8')).toBe(frozen)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('done 后 appendRunAgentCall 不落盘(磁盘冻结,agents 不追加)', () => {
+    const dir = makeWorkspace()
+    try {
+      const sessionId = 's1'
+      const run = createRun(dir, sessionId)
+      run.status = 'done'
+      run.gate = { pending: false, planFile: null }
+      saveRun(dir, run) // 首次 done 写盘
+      const frozen = readFileSync(path.join(dir, '.wf-runs', run.runId, 'run.json'), 'utf-8')
+      appendRunAgentCall(dir, run, makeCall('explorer', 'c9', 999))
+      const persisted = loadRun(dir, run.runId)
+      expect(persisted?.agents).toHaveLength(0) // 磁盘未追加
+      expect(readFileSync(path.join(dir, '.wf-runs', run.runId, 'run.json'), 'utf-8')).toBe(frozen)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('非 done → done 的首次写盘不被冻结误伤(纯文本交付 finally 语义)', () => {
+    const dir = makeWorkspace()
+    try {
+      const sessionId = 's1'
+      const run = createRun(dir, sessionId)
+      run.status = 'executing'
+      appendRunAgentCall(dir, run, makeCall('explorer', 'c1', 1))
+      const before = loadRun(dir, run.runId)!
+      // 纯文本交付回合 finally:决策 done → 首次置 done 落盘
+      run.status = 'done'
+      run.gate.pending = false
+      saveRun(dir, run)
+      const after = loadRun(dir, run.runId)!
+      expect(after.status).toBe('done')
+      expect(after.updatedAt).toBeGreaterThan(before.updatedAt) // 正常推进一次
+      // 且 resolveCurrentRun 从此排除该 run(终态)
+      expect(resolveCurrentRun(dir, sessionId, null)).toBeNull()
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+})

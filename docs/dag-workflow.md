@@ -91,6 +91,7 @@ write: [...]             # 可写目标;省略 = 纯只读;** = 全量写
 - **run 绑定「会话内的一次需求处理」**,不是与会话 1:1——一个会话可连续多次下发需求,产物各自隔离
 - 开启规则(服务端判定):用户发新消息时,当前会话有**进行中**的 run(status 非 done)→ 归并进该 run(闸门续跑即此场景);否则 → 新建 run(新 runId)
 - **任务完成释放**:任务完成(status 置 done,由 `complete_task` 工具或纯文本交付回合触发)后服务端释放内存中的 run(`handle.run = null`),同一会话的下一个需求自动开新 run、新产物目录;闸门等待(awaiting_approval)与**中途停止回合(调过子代理但未到闸门/完成)**均不释放——前者靠 gate.pending 归并,后者 run 保持 executing,下一条消息自然归并同一 runId
+- **done 后 run.json 冻结**:run 置 done 后其 run.json 不再被改写(updatedAt 不二次 bump),提交后 git 不脏;新需求开新 runId、新产物目录
 - 删除会话**不删** `.wf-runs/` 产物(已进 git,是用户资产);`run.json` 的 sessionId 是归属索引
 
 ### 5.2 产物黑板(工作区,git 可追踪)
@@ -153,7 +154,7 @@ planner 完成 → 主代理调用 wait_for_approval 工具(prompt 指示:计划
 - 闸门时机由主代理控制(prompt 指示),服务端零检测逻辑
 - 优点:复用现有接口,无长连接、无异步工具结果;断线/重启后闸门点天然可恢复
 
-**任务完成**:orchestrator 在最终交付完成时调用 `complete_task` 工具(与 `wait_for_approval` 同构的普通工具,参数 `summary`)→ 服务端置 run 为 `done` 并释放内存 run,下一次新需求开启新 runId、新产物目录;纯文本交付回合(本回合未调任何子代理/闸门/完成工具)为服务端兜底,自动置 done。回合失败(错误/abort)不做任何处置,run 保持进行中,续跑归并同一 runId。
+**任务完成**:orchestrator 在最终交付完成时调用 `complete_task` 工具(与 `wait_for_approval` 同构的普通工具,参数 `summary`)→ 服务端置 run 为 `done` 并释放内存 run,下一次新需求开启新 runId、新产物目录;纯文本交付回合(本回合未调任何子代理/闸门/完成工具)为服务端兜底,自动置 done。回合失败(错误/abort)不做任何处置,run 保持进行中,续跑归并同一 runId。done 即终态:complete_task 后同回合再调任何工具不再复用该 run(ensureRun 排除 done),闸门仅对非 done 的 run 生效。
 
 ## 8. 恢复与可靠性
 
@@ -164,7 +165,7 @@ planner 完成 → 主代理调用 wait_for_approval 工具(prompt 指示:计划
 | 刷新浏览器 | 拉 run 快照 + getHistory(现有)+ 子代理 JSONL → 重建聊天流 / DAG 图 / 模态窗 / 闸门按钮 |
 | 断连重连(服务活着) | 同上;进行中的回合继续跑,重连后从快照看结果 |
 | 重启服务 | 同上;主/子会话经 openSession 从 JSONL 恢复 |
-| 运行中崩溃 | 中断回合标记为「已中止」(前端标注「上次运行在此中断」),用户重发 prompt 续跑——主代理上下文完好,自行判断重跑或继续 |
+| 运行中崩溃 | 中断回合标记为「已中止」(前端标注「上次运行在此中断」),用户重发 prompt 续跑——主代理上下文完好,自行判断重跑或继续。done 的 run 不参与恢复扫描,不会从终态复活 |
 
 **新增接口**:`GET /api/agent/workspaces/:id/run` → run 快照 `{ runId, status, phase, artifacts[], gate: { pending, planFile }, agents: [...] }`。
 

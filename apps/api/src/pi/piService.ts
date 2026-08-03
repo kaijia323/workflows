@@ -333,7 +333,11 @@ export class PiAgentService {
   private ensureRun(handle: SessionHandle): RunFile {
     const workspace = handle.workspace
     const currentId = handle.run?.runId ?? null
-    const run = handle.run ?? resolveCurrentRun(workspace.path, handle.sessionId, currentId)
+    // done 即终态:已完成的 run 不再内存归并(走 resolveCurrentRun 的 done 排除 / createRun 新建)
+    const run =
+      handle.run && handle.run.status !== 'done'
+        ? handle.run
+        : resolveCurrentRun(workspace.path, handle.sessionId, currentId)
     if (run) {
       handle.run = run
       return run
@@ -375,8 +379,8 @@ export class PiAgentService {
         if (name === 'planner' && plannerCalls >= 2) {
           throw new Error('重做计划已达 2 次上限。立即收尾:总结仍未解决的问题清单,向用户交付,不要再调用任何子代理。')
         }
-        // 子代理运行中 run 进入执行态(闸门/交付判定在回合结束)
-        if (run.status === 'awaiting_approval' || run.status === 'done') run.status = 'executing'
+        // 子代理运行中 run 进入执行态(闸门续跑翻回 executing;done 为终态,永不回退)
+        if (run.status === 'awaiting_approval') run.status = 'executing'
         run.gate.pending = false
         saveRun(workspace.path, run)
 
@@ -507,6 +511,10 @@ export class PiAgentService {
         run.gate = { pending: false, planFile: null }
         // 立即落盘:崩溃安全(complete_task 后进程崩溃,任务已完成状态不丢)
         saveRun(workspace.path, run)
+        // 立即释放:done 即终态,收窄「complete_task 后同回合改写」窗口。
+        // 配合 ensureRun 的 done 检查:后续工具调用(子代理/闸门)经 ensureRun 新建 run 而非复用本 run;
+        // finally 因 handle.run 为 null 跳过三分支,闸门决策(turnWaitCalled 优先)不再能把 done 复活。
+        handle.run = null
         return {
           content: [
             {
@@ -673,9 +681,13 @@ export class PiAgentService {
           run.gate = { pending: true, planFile: detectPlanFile(workspace.path, run) }
           saveRun(workspace.path, run)
         } else if (decision === 'done') {
-          run.status = 'done'
-          run.gate.pending = false
-          saveRun(workspace.path, run)
+          // done 已由 complete_task 落盘时不再重复写(消除 updatedAt 二次 bump);仅首次进入 done 时写盘
+          if (run.status !== 'done') {
+            run.status = 'done'
+            run.gate.pending = false
+            run.gate.planFile = null // 顺手清理残留(探索报告 §5 观察)
+            saveRun(workspace.path, run)
+          }
           // 任务完成释放:done 的 run 不再被本会话后续需求复用
           // (keep / awaiting_approval 分支不置空:前者内存归并,后者闸门续跑归并)
           handle.run = null

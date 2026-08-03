@@ -5,6 +5,7 @@
  * - 产物目录:<workspace>/.wf-runs/<runId>/run.json + NN-role.md(进 git,删会话不删产物)
  * - 归并规则:当前会话有进行中 run(status 非 done)→ 归并;否则新建
  * - 恢复:服务重启后扫描 .wf-runs,取最新 gate.pending 或未完成的 run 作为当前 run
+ * - 冻结:done 后 run.json 不再改写(状态落盘为 done 后不再改写,git 保持干净),新需求开新 run
  */
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
@@ -67,6 +68,13 @@ export function createRun(workspacePath: string, sessionId: string): RunFile {
 /** 持久化 run.json(不存在的目录自动创建) */
 export function saveRun(workspacePath: string, run: RunFile): void {
   const file = runFileFor(workspacePath, run.runId)
+  // 冻结:磁盘上已是 done 的 run.json 永不改写(done 即终态,run.json 是仓库记录)。
+  // 首次进入 done 的写盘(complete_task / finally 首次 done)不受影响——此时磁盘还不是 done。
+  // 未来如需手动补录 done run,须显式通道(如 force 参数),当前不实现。
+  if (run.status === 'done') {
+    const existing = loadRun(workspacePath, run.runId)
+    if (existing?.status === 'done') return
+  }
   mkdirSync(path.dirname(file), { recursive: true })
   run.updatedAt = Date.now()
   writeFileSync(file, JSON.stringify(run, null, 2) + '\n', 'utf-8')

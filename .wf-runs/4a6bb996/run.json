@@ -1,0 +1,29 @@
+{
+  "runId": "4a6bb996",
+  "sessionId": "4ad12a92-ca51-4914-bdc6-5d41d1fcbaca",
+  "status": "executing",
+  "gate": {
+    "pending": false,
+    "planFile": ".wf-runs\\4a6bb996\\02-plan-1.md"
+  },
+  "createdAt": 1785783168182,
+  "updatedAt": 1785783583028,
+  "agents": [
+    {
+      "callId": "call_00_ujQa3tRxewPQGzt6EGKD9659",
+      "agent": "explorer",
+      "summary": "探索完成,报告已写入 `.wf-runs/4a6bb996/01-exploration-1.md`。摘要如下:\n\n## 摘要\n\n**写盘机制**:run.json 唯一写盘入口是 `runManager.ts` `saveRun`(L67-73)——每次 `updatedAt=Date.now()` + `writeFileSync` 全量重写(非 merge,无原子写)。状态机实际只用到 planning / awaiting_approval / executing / done;`'reviewing'` 仅在类型与文档中存在,代码从不写入;**无 error 状态**(异常/abort 走 turnFailed→keep,不写盘)。\n\n**写盘调用点(9 处)**:createRun(planning)、子代理调用前状态翻转 + saveRun(L381)、子代理成功/失败 appendRunAgentCall(L407/426)、wait_for_approval(L466)、complete_task(L509,崩溃安全落盘)、finally 三分支中 awaiting_approval(L674)与 done(L678)各一次;keep 分支不写盘。\n\n**重点结论**:\n- ✅ **跨回合/重启不会改写 done run**:resolveCurrentRun(内存+磁盘)、getRunSnapshot(L708 done 防护)、openSession 恢复扫描三处均排除 done,重启不会把 done 恢复成其他状态。\n- ⚠️ **同回合窗口存在真实改写路径**(唯一风险):complete_task 不置空 `handle.run`,而 `ensureRun` 内存捷径(L337-338)不查状态 → ① 模型在 complete_task 后继续调子代理,`createSubAgentTool` L379 显式把 done 翻回 executing 并落盘;② 同回合再调 wait_for_approval → 闸门优先决策(decideTurnEnd L163)把 done run 永久复活为 awaiting_approval 且不释放;③ happy path 下 finally done 分支也会在 complete_task 之后重复写一次(updatedAt 二次 bump)。\n- **多 run 不共享目录**;断点续跑(闸门/中途停止)复用同一 runId 属设计预期,均发生在非 done 状态。\n- **NN-role-N.md 产物**由子代理模型经 write 工具写入(服务端只注入权威文件名 + detectArtifact 扫描),白名单 `.wf-runs/*/0X-role-*.md` 结构性防止覆盖(旧版无序号命名曾互相覆盖,见 46569220 run);done 后冻结风险与 run.json 同源(同回合窗口)。\n\n**最小改动建议**:① `ensureRun` 内存捷径加 `status==='done'` 检查(一处堵住全部同回合改写);② L379 翻转条件去掉 done;③ finally done 分支仅在尚未 done 时写盘;④ (可选)saveRun 加「磁盘已 done 即跳过」熔断兜底。现有测试无回归预期,建议补 2-3 个冻结单测。",
+      "artifact": ".wf-runs\\4a6bb996\\01-exploration-1.md",
+      "sessionFile": "sessions\\857395d8-e02b-4b8c-9b07-5144bbf849cd\\sub\\4a6bb996\\2026-08-03T18-52-48-184Z_019fc8f8-acb8-76a6-b69a-c1b4d448e2cf.jsonl",
+      "ts": 1785783310239
+    },
+    {
+      "callId": "call_00_PkH1bzpGzAQJ9argORRc0106",
+      "agent": "planner",
+      "summary": "实施计划已写入 `.wf-runs/4a6bb996/02-plan-1.md`。摘要如下:\n\n## 计划摘要\n\n### A 部分:git 恢复(改动 1 文件 + git 操作)\n- **A1**:删除 `.gitignore` L26-27 的注释与 `.wf-runs/*/run.json` 规则\n- **A2**:`git add` 恢复 3 个被 `git rm --cached` 的 run.json(2a2b4d0d/46569220/d06adb0f)\n- **A3**:`git ls-files` 核对后 `git add .wf-runs/`,纳入 696fc399 与本流程自身 4a6bb996,实现全量进 git\n- **A4**:提交\n\n### B 部分:done 冻结(5 处代码 + 文档)\n1. **B1** `piService.ts` `ensureRun`(L336):内存捷径加 `status !== 'done'` 检查——一处改动堵住全部同回合改写窗口(子代理翻转、闸门复活、agents 追加)\n2. **B2** L379:翻转条件去掉 `done`,仅保留 `awaiting_approval`(防御双保险)\n3. **B3** finally done 分支(L676-681):仅首次进入 done 时写盘,消除 updatedAt 二次 bump\n4. **B4** `complete_task`(L509 后)立即 `handle.run = null`——**升级为必做**:探索报告原列为可选,但分析发现「先 wait_for_approval 后 complete_task」时 finally 闸门分支(闸门优先)会把 done run 翻回 awaiting_approval 复活,B4 是关闭该漏洞的关键\n5. **B5** `runManager.ts` `saveRun`(L67-73):磁盘已是 done 则跳过写盘(熔断兜底,首次 done 写盘保留——崩溃安全不受影响)\n6. **B6**:runManager.ts 头注释 + `docs/dag-workflow.md` §5.1/§7/§8 同步冻结语义\n\n### 关键设计确认\n- done 后闸门不复活 run(新建 run 承接),符合「done 即终态,闸门仅对非 done 生效」\n- 断点续跑(awaiting_approval/keep 归并)不受影响——续跑仅发生在非 done run\n- complete_task 落盘 L509 保留,崩溃安全无损\n\n### 测试与验证\n- 现有 12 例 runManager 测试逐例核对无回归;新增 3 个单测(done 冻结双向、append 不落盘、首次 done 写不被误伤)\n- 端到端:任务完成后同会话再发消息,断言旧 run.json 的 mtime/内容/updatedAt 不变;`git status` 提交后不再脏\n\n计划含逐条验收清单、风险表与回滚方案(B1-B5 各自独立可回滚;B4 回滚需补 finally 闸门分支守卫)。",
+      "artifact": ".wf-runs\\4a6bb996\\02-plan-1.md",
+      "sessionFile": "sessions\\857395d8-e02b-4b8c-9b07-5144bbf849cd\\sub\\4a6bb996\\2026-08-03T18-55-20-307Z_019fc8fa-fef3-72d3-af3a-aaa36d10c09c.jsonl",
+      "ts": 1785783548249
+    }
+  ]
+}

@@ -1,0 +1,29 @@
+{
+  "runId": "696fc399",
+  "sessionId": "4ad12a92-ca51-4914-bdc6-5d41d1fcbaca",
+  "status": "done",
+  "gate": {
+    "pending": false,
+    "planFile": null
+  },
+  "createdAt": 1785782958448,
+  "updatedAt": 1785783120036,
+  "agents": [
+    {
+      "callId": "call_00_kZ3m6q2lxiatsy6ovQDq3799",
+      "agent": "explorer",
+      "summary": "探索完成,报告已写入 `.wf-runs/696fc399/01-exploration-1.md`。摘要如下:\n\n## 摘要\n\n**1. .wf-runs 是什么**:本仓库**自研**的「工作流运行记录 + 产物黑板」目录(`apps/api/src/pi/runManager.ts`),与 pi-coding-agent 包无关(包内 0.83.0 零命中 .wf-runs/run.json)。`run.json` 结构:`{runId(8位hex), sessionId, status(planning/awaiting_approval/executing/done), gate{pending,planFile}, createdAt, updatedAt, agents[{callId,agent,summary,artifact,sessionFile,ts}]}`;字段名是 **camelCase `updatedAt`**(epoch 毫秒),无 updateAt/update_at。\n\n**2. 生成/更新机制**:全部写盘集中在 `runManager.ts`——`createRun()` 新建,`saveRun()` 是 `updatedAt` 唯一赋值点(置 `Date.now()` 后全量重写文件)。触发点都在 `piService.ts`:子代理调用(置 executing + append 记录)、`wait_for_approval` 闸门、`complete_task` 完成、`prompt()` finally 三分支(keep 分支刻意不写盘)。**只要工作流在跑,run.json 必被重写 → updatedAt 必变 → git 必脏**。\n\n**3. 是否被 gitignore**:**否**。根 `.gitignore` 只有 `.workflows/` 等,`.git/info/exclude` 为空;docs/dag-workflow.md 明示「产物进 git,删会话不删产物」——被跟踪是有意设计。husky pre-commit 只跑 lint-staged/typecheck/test,不写 run.json。\n\n**4. 是否有配置开关**:**没有**。应用配置只有 apiKey/model/thinkingLevel(`.workflows/config.json`);`RUNS_DIR_NAME='.wf-runs'` 是硬编码;pi-coding-agent 文档中 runs/workflow/tracking 仅有遥测 `trackingId`(无关)。\n\n**5. 用途**:运行记录(状态机 + 子代理调用索引 + NN-role-N.md 产物)、断点续跑(服务重启扫描 .wf-runs 归并,闸门是天然恢复点)、历史资产(删会话不删产物)。\n\n**推荐方案**(按代价排序):① 仅 ignore `.wf-runs/*/run.json`,保留产物 md 进 git(推荐,最小改动);② 整个 `.wf-runs/` 加 gitignore + `git rm -r --cached`(功能无损,放弃产物进 git 初衷);③ 改代码减少写盘(不推荐,与崩溃安全落盘设计权衡)。",
+      "artifact": ".wf-runs\\696fc399\\01-exploration-1.md",
+      "sessionFile": "sessions\\857395d8-e02b-4b8c-9b07-5144bbf849cd\\sub\\696fc399\\2026-08-03T18-49-18-452Z_019fc8f5-7974-73ed-854b-9e9f795e8196.jsonl",
+      "ts": 1785783076437
+    },
+    {
+      "callId": "call_00_CNql5wpTPcDK1n3IP2Jd7706",
+      "agent": "executor",
+      "summary": "## 执行摘要\n\n**改动文件**\n- `.gitignore`:末尾追加 `.wf-runs/*/run.json`(含注释),保留全部已有规则\n- `.wf-runs/696fc399/03-execution-1.md`:写入执行报告\n\n**git rm --cached(保留工作区文件,3 个全部成功)**\n- `.wf-runs/2a2b4d0d/run.json`\n- `.wf-runs/46569220/run.json`\n- `.wf-runs/d06adb0f/run.json`\n\n**验证结果**\n- `git ls-files '.wf-runs/*/run.json'` 为空——已不在跟踪列表\n- `git check-ignore -v` 确认 4 个目录(含 696fc399)的 run.json 均命中新规则\n- NN-*.md 产物文件仍被跟踪(2a2b4d0d 4 个、46569220 3 个、d06adb0f 4 个)\n- 工作区 run.json 全部保留;696fc399 目录未动\n- `git status --short` 中 `.wf-runs` 下不再出现任何 run.json 的 modified/untracked;剩余仅为预期的 `.gitignore` 修改与 3 个 cached 删除\n\n**未改动**:runManager.ts 等源码;未删除任何 `.wf-runs` 实际文件。无未完成项。",
+      "artifact": ".wf-runs\\696fc399\\03-execution-1.md",
+      "sessionFile": "sessions\\857395d8-e02b-4b8c-9b07-5144bbf849cd\\sub\\696fc399\\2026-08-03T18-51-28-440Z_019fc8f7-7538-7062-903b-a7d2743fd2e7.jsonl",
+      "ts": 1785783110647
+    }
+  ]
+}
