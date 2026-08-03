@@ -1,30 +1,12 @@
 <script setup lang="ts">
-import { ref } from 'vue'
 import type { AgentStore } from '../composables/useAgent'
 
 /**
  * 左栏:工作区(源节点)。选择工作区后,agent 上下文限定在该目录。
+ * 添加工作区:点击按钮弹出目录选择器(WorkspacePickerModal,由 App.vue 挂载)。
  */
 const props = defineProps<{ agent: AgentStore }>()
-
-const newPath = ref('')
-const adding = ref(false)
-const addError = ref<string | null>(null)
-
-async function handleAdd() {
-  const path = newPath.value.trim()
-  if (!path || adding.value) return
-  adding.value = true
-  addError.value = null
-  try {
-    await props.agent.addWorkspace(path)
-    newPath.value = ''
-  } catch (error) {
-    addError.value = error instanceof Error ? error.message : String(error)
-  } finally {
-    adding.value = false
-  }
-}
+const emit = defineEmits<{ openPicker: [] }>()
 
 async function handleRemove(id: string) {
   await props.agent.removeWorkspace(id)
@@ -54,7 +36,7 @@ function formatDate(ts: number): string {
           尚无工作区
         </p>
         <p class="mt-1.5 text-[11px] leading-relaxed text-faint">
-          输入一个本地目录路径,agent 的上下文将限定在该目录内。
+          点击下方「添加工作区」,浏览并选择本地目录作为 agent 上下文。
         </p>
       </div>
 
@@ -123,36 +105,15 @@ function formatDate(ts: number): string {
 
     <!-- 添加工作区 -->
     <div class="shrink-0 border-t border-edge p-3">
-      <form
-        class="flex gap-1.5"
-        @submit.prevent="handleAdd"
+      <button
+        type="button"
+        class="w-full border border-signal/50 bg-signal/10 px-2.5 py-1.5 font-display text-[11px] tracking-widest text-signal transition hover:bg-signal/20"
+        @click="emit('openPicker')"
       >
-        <input
-          v-model="newPath"
-          type="text"
-          spellcheck="false"
-          placeholder="/path/to/project"
-          class="min-w-0 flex-1 border border-edge bg-ink px-2 py-1.5 font-mono text-[11px] text-fg placeholder:text-faint focus:border-signal/60"
-        >
-        <button
-          type="submit"
-          class="shrink-0 border border-signal/50 bg-signal/10 px-2.5 font-display text-[11px] tracking-wider text-signal transition hover:bg-signal/20 disabled:opacity-40"
-          :disabled="adding || !newPath.trim()"
-        >
-          添加
-        </button>
-      </form>
-      <p
-        v-if="addError"
-        class="mt-1.5 font-mono text-[10px] text-err"
-      >
-        {{ addError }}
-      </p>
-      <p
-        v-else
-        class="mt-1.5 font-mono text-[9px] leading-relaxed text-faint"
-      >
-        目录需真实存在;选择后 agent 上下文限定于此
+        + 添加工作区
+      </button>
+      <p class="mt-1.5 font-mono text-[9px] leading-relaxed text-faint">
+        选择真实存在的目录;agent 上下文限定于此
       </p>
     </div>
   </aside>

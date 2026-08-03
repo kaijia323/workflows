@@ -6,9 +6,11 @@ import WorkspaceRail from './components/WorkspaceRail.vue'
 import ChatPane from './components/ChatPane.vue'
 import InfoPanel from './components/InfoPanel.vue'
 import ApiKeyModal from './components/ApiKeyModal.vue'
+import WorkspacePickerModal from './components/WorkspacePickerModal.vue'
 
 const agent = useAgent()
 const showSettings = ref(false)
+const showPicker = ref(false)
 const meta = ref<{ workflowsRoot: string; environment: string } | null>(null)
 
 onMounted(async () => {
@@ -30,7 +32,10 @@ onMounted(async () => {
     />
 
     <div class="flex min-h-0 flex-1">
-      <WorkspaceRail :agent="agent" />
+      <WorkspaceRail
+        :agent="agent"
+        @open-picker="showPicker = true"
+      />
       <ChatPane
         :agent="agent"
         :on-open-settings="() => (showSettings = true)"
@@ -54,6 +59,12 @@ onMounted(async () => {
       :agent="agent"
       :meta="meta"
       @close="showSettings = false"
+    />
+
+    <WorkspacePickerModal
+      v-if="showPicker"
+      :agent="agent"
+      @close="showPicker = false"
     />
   </div>
 </template>

@@ -1,9 +1,9 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
-import type { Workspace } from '@workflows/shared'
+import type { DirListing, Workspace } from '@workflows/shared'
 
 /**
  * .workflows 配置根目录(分环境):
@@ -109,7 +109,8 @@ export function addWorkspace(store: WorkflowsStore, dir: string): Workspace | un
   const resolved = path.resolve(dir)
   if (!isDirectory(resolved)) return undefined
   const workspaces = loadWorkspaces(store)
-  if (workspaces.some((w) => w.path === resolved)) return undefined
+  // Windows/macOS 大小写不敏感:同一目录不同大小写写法视为重复
+  if (workspaces.some((w) => samePath(w.path, resolved))) return undefined
   const workspace: Workspace = {
     id: randomUUID(),
     path: resolved,
@@ -148,6 +149,84 @@ function isDirectory(dir: string): boolean {
     return existsSync(dir) && statSync(dir).isDirectory()
   } catch {
     return false
+  }
+}
+
+/** 路径等价比较:Windows/macOS 默认大小写不敏感,折叠大小写后比较;Linux 严格比较 */
+export function samePath(a: string, b: string, platform: NodeJS.Platform = process.platform): boolean {
+  const fold = platform === 'win32' || platform === 'darwin'
+  return fold ? a.toLowerCase() === b.toLowerCase() : a === b
+}
+
+/** 目录名分块:数字段与文本段交替,如 "pkg-10" → ["pkg-", "10"] */
+const NAME_CHUNK_RE = /(\d+)|(\D+)/g
+
+function nameChunks(name: string): string[] {
+  return name.toLowerCase().match(NAME_CHUNK_RE) ?? []
+}
+
+/** 比较两个分块数组:数字段按数值、文本段按字典序;与系统 locale 无关(跨平台结果一致) */
+function compareChunks(a: string[], b: string[]): number {
+  const len = Math.max(a.length, b.length)
+  for (let i = 0; i < len; i++) {
+    const ca = a[i]
+    const cb = b[i]
+    if (ca === undefined) return -1
+    if (cb === undefined) return 1
+    if (ca === cb) continue
+    const aNum = ca[0] >= '0' && ca[0] <= '9'
+    const bNum = cb[0] >= '0' && cb[0] <= '9'
+    if (aNum && bNum) {
+      // 数字段:去前导零后先比长度(避免数值精度问题),再按字典序;相等则继续
+      const na = ca.replace(/^0+/, '') || '0'
+      const nb = cb.replace(/^0+/, '') || '0'
+      if (na.length !== nb.length) return na.length - nb.length
+      if (na !== nb) return na < nb ? -1 : 1
+      continue
+    }
+    return ca < cb ? -1 : 1
+  }
+  return 0
+}
+
+/** 目录名自然排序:数字感知(README-2 < README-10)、大小写不敏感、隐藏目录在前。确定性且跨平台一致。 */
+function sortNames(names: string[]): string[] {
+  const chunks = names.map(nameChunks)
+  const order = names.map((_, i) => i)
+  order.sort((i, j) => {
+    const byChunks = compareChunks(chunks[i], chunks[j])
+    if (byChunks !== 0) return byChunks
+    // 分块相等(如大小写变体)时按原始名称定序,保证全序确定性
+    return names[i] < names[j] ? -1 : names[i] > names[j] ? 1 : 0
+  })
+  return order.map((i) => names[i])
+}
+
+/**
+ * 列出目录下的子目录(供前端目录选择器浏览)。
+ * 仅返回目录、自然排序、含隐藏目录;符号链接指向的目录(pnpm 链接、macOS /tmp、Windows junction)一并包含,
+ * 断链忽略。不可读或不存在时返回 undefined。
+ */
+export function listDirectory(dir: string): DirListing | undefined {
+  try {
+    if (!isDirectory(dir)) return undefined
+    const names: string[] = []
+    for (const d of readdirSync(dir, { withFileTypes: true })) {
+      if (d.isDirectory()) {
+        names.push(d.name)
+      } else if (d.isSymbolicLink()) {
+        // 仅对符号链接 stat(普通目录零额外系统调用):跟随链接确认目标为目录
+        try {
+          if (statSync(path.join(dir, d.name)).isDirectory()) names.push(d.name)
+        } catch {
+          // 断链或目标不可达,忽略
+        }
+      }
+    }
+    const parent = path.parse(dir).root === dir ? null : path.dirname(dir)
+    return { path: dir, parent, entries: sortNames(names).map((name) => ({ name })) }
+  } catch {
+    return undefined
   }
 }
 

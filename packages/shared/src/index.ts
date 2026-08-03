@@ -73,6 +73,25 @@ export interface AgentConfig {
 }
 
 /**
+ * 目录浏览条目(仅目录;添加工作区时供前端浏览文件系统)
+ */
+export interface DirEntry {
+  name: string
+}
+
+/**
+ * 目录列表响应(路径为平台原生格式,如 C:\\Users\\dev)
+ */
+export interface DirListing {
+  /** 当前目录绝对路径 */
+  path: string
+  /** 上级目录;已在根目录时为 null */
+  parent: string | null
+  /** 子目录列表(自然排序,含隐藏目录) */
+  entries: DirEntry[]
+}
+
+/**
  * 会话状态快照
  */
 export interface SessionStatus {

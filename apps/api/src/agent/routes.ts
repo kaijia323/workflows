@@ -2,8 +2,10 @@ import type { Context } from 'hono'
 import type { Hono } from 'hono'
 import { HTTPException } from 'hono/http-exception'
 import { streamSSE } from 'hono/streaming'
+import { homedir } from 'node:os'
+import path from 'node:path'
 import type { HistoryItem } from '@workflows/shared'
-import { addWorkspace, getActiveSession, getSession, hasApiKey, loadWorkspaces, removeWorkspace, updateWorkspace, type WorkflowsStore } from '../config.js'
+import { addWorkspace, getActiveSession, getSession, hasApiKey, listDirectory, loadWorkspaces, removeWorkspace, updateWorkspace, type WorkflowsStore } from '../config.js'
 import { PiAgentService } from '../pi/piService.js'
 
 export function registerAgentRoutes(app: Hono, store: WorkflowsStore, pi: PiAgentService): void {
@@ -51,6 +53,15 @@ export function registerAgentRoutes(app: Hono, store: WorkflowsStore, pi: PiAgen
   })
 
   /* ---------------- 工作区 ---------------- */
+
+  // 目录浏览:添加工作区时的选择器数据源。本地开发工具,agent 本就可读全盘,故无额外鉴权。
+  app.get('/api/agent/fs/list', (c) => {
+    const raw = c.req.query('path')?.trim()
+    const dir = raw ? path.resolve(raw) : homedir()
+    const listing = listDirectory(dir)
+    if (!listing) throw new HTTPException(400, { message: '目录不存在或不可读' })
+    return c.json({ code: 0, message: 'ok', data: listing })
+  })
 
   app.get('/api/agent/workspaces', (c) => c.json({ code: 0, message: 'ok', data: loadWorkspaces(store) }))
 
