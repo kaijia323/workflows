@@ -1,0 +1,29 @@
+{
+  "runId": "75ff9534",
+  "sessionId": "6c0abb84-86e9-4206-977e-226282de4746",
+  "status": "done",
+  "gate": {
+    "pending": false,
+    "planFile": null
+  },
+  "createdAt": 1785864656474,
+  "updatedAt": 1785864927040,
+  "agents": [
+    {
+      "callId": "call_00_QLuIIBv8INYa8BwlfXoR8104",
+      "agent": "executor",
+      "summary": "## 执行摘要\n\n**改动文件(2 个)**\n\n1. `apps/web/src/components/ChatPane.vue`\n   - 占位符改为 `'输入消息,输入 / 可搜索 skills,Enter 发送,Shift+Enter 换行…'`(无工作区分支不变)\n   - `onKeydown` 菜单打开且有匹配项时新增 `Tab` 分支:与 Enter 同行为,`preventDefault()` + `selectSkill(当前高亮)`,填入 `/skill:name` 不发送;外层 `!event.isComposing` 守卫保证 IME 中不触发;菜单未打开时 Tab 不拦截\n\n2. `apps/web/src/components/ChatPane.test.ts`\n   - `mountPane` 增加 `attachTo` 选项(jsdom 焦点断言需连接 document)\n   - 新增 4 条用例:占位符提示(含无工作区分支)、Tab 选择高亮项(填入/不发送/菜单关闭/焦点不丢/`defaultPrevented===true`)、下拉关闭时 Tab 不拦截、IME 组合中 Tab 不触发\n\n**自检结果**\n- `pnpm --filter @workflows/web test`:4 files / 29 tests 通过(原 25 + 新 4)\n- `pnpm typecheck`:3/3 通过\n- `pnpm lint`:3/3 通过\n\n**备注**:产物目录暂无 02-plan 文件,按任务说明实施(现有 `/` 下拉实现已从 `.wf-runs/8315c3f1/` 报告核实);执行报告已写入 `.wf-runs/75ff9534/03-execution-1.md`。无未完成项。",
+      "artifact": ".wf-runs\\75ff9534\\03-execution-1.md",
+      "sessionFile": "sessions\\857395d8-e02b-4b8c-9b07-5144bbf849cd\\sub\\75ff9534\\2026-08-04T17-30-56-477Z_019fcdd4-165d-7f50-89f6-52142019b426.jsonl",
+      "ts": 1785864800560
+    },
+    {
+      "callId": "call_00_VAxVOCekMdeL9BYkIvvH4535",
+      "agent": "reviewer",
+      "summary": "审查完成,结论:**pass**。报告已写入 `.wf-runs/75ff9534/04-review-1.md`。\n\n摘要:\n- **需求 ① 通过**:占位符 `'输入消息,输入 / 可搜索 skills,Enter 发送,Shift+Enter 换行…'`(ChatPane.vue:413)满足提示要求,无工作区分支保持 `'先在左侧选择一个工作区'` 不变;全仓无旧占位符残留。\n- **需求 ② 通过**:Tab 分支位于 `skillMenuOpen && filteredSkills.length > 0 && !event.isComposing` 外层条件内——preventDefault + `selectSkill`(与 Enter 共用)、填入不发送、焦点不丢(nextTick focus)、IME 中不触发、菜单关闭时不拦截;与方向键/Esc 分支互斥协调;选中后菜单不会重开(watch 重算无匹配)。\n- **测试通过**:4 条新用例直接断言占位符(含无工作区分支)、Tab 填入/不发送/菜单关闭/`activeElement` 焦点/手动事件 `defaultPrevented === true`、下拉关闭不拦截、IME 守卫;attachTo 方案与 jsdom 环境(vitest.config.ts:13)匹配;基线 10 条用例未动,计数与报告 25→29 一致。\n- **回归风险低**:仅新增 Tab 分支 + 占位符 + 注释,发送/Enter/Esc/方向键逻辑未动;无测试引用旧文本。\n- **2 条低级别建议**(不影响合入):Tab 分支未区分 Shift+Tab(与 Enter 的 `!event.shiftKey` 不对称,需求未规定);占位符用例未显式 unmount(attachTo 用例已正确清理)。\n\n注:本环境无 shell,未能实际复跑 test/typecheck/lint,结论基于静态核验 + 执行报告自检声明。",
+      "artifact": ".wf-runs\\75ff9534\\04-review-1.md",
+      "sessionFile": "sessions\\857395d8-e02b-4b8c-9b07-5144bbf849cd\\sub\\75ff9534\\2026-08-04T17-33-25-703Z_019fcdd6-5d47-749c-8313-8e6c0ed3f851.jsonl",
+      "ts": 1785864923410
+    }
+  ]
+}
