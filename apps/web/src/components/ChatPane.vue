@@ -61,9 +61,9 @@ const filteredSkills = computed(() => {
 })
 
 watch(
-  () => [skillQuery.value, props.agent.streaming.value, props.agent.activeWorkspaceId.value] as const,
+  () => [draft.value, props.agent.streaming.value, props.agent.activeWorkspaceId.value] as const,
   (current, previous: readonly [string, boolean, string | null]) => {
-    const [query, streaming, workspaceId] = current
+    const [text, streaming, workspaceId] = current
     const prevWorkspace = previous[2]
     // 切工作区:直接关闭(下拉属于旧工作区)
     if (workspaceId !== prevWorkspace) {
@@ -71,8 +71,9 @@ watch(
       return
     }
     // 打开条件:draft 以 / 开头、非流式、有匹配(空查询 = 全量展示)
+    const query = text.startsWith('/') ? text.slice(1) : ''
     const shouldOpen =
-      draft.value.startsWith('/') && !streaming && (query.trim() === '' || filteredSkills.value.length > 0)
+      text.startsWith('/') && !streaming && (query.trim() === '' || filteredSkills.value.length > 0)
     skillMenuOpen.value = shouldOpen
     if (shouldOpen) skillIndex.value = 0
   },
