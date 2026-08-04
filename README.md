@@ -68,6 +68,7 @@ disable-model-invocation: false  # 可选;true 时不注入 system prompt,只能
 - **新增/修改 skill 后需重开会话**:skills 在会话创建时读入 system prompt,下拉列表可重开工作区即时刷新(端点现扫),但模型要感知新 skill 必须新建会话或重启 api;`/skill:<name>` 展开始终即时可用。
 - **安全提示**:skill 正文是任意指令,来源可能不可信,使用前请 review;`disable-model-invocation: true` 可让 skill 不进 system prompt(仅显式调用)。
 - 这些目录**仅只读**,本应用运行数据仍只写 `.workflows/`。
+- **工作区边界**:工作区外的 skills 目录(`~/.pi/agent/skills`、`~/.agents/skills`、生产 `~/.workflows/skills`)对 read/ls 只读放行(放行根为子树语义,仅 skills 根之下;兄弟路径如 `~/.workflows/config.json` 仍拦);fff-find/fff-grep 参数校验同样放行但**索引仍限工作区**(搜不到工作区外 skills,读取主路径是 read/ls);write/edit/bash 一律不放行。
 
 ## 端口策略(对外只暴露一个入口)
 

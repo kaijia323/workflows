@@ -5,6 +5,9 @@
  * - DefaultResourceLoader 需要先 reload() 才会填充 prompt,而 reload 会走
  *   packageManager.resolve(),触碰全局扩展包(违反「不读写 pi 全局配置」约定)
  * - createAgentSession 对调用方传入的 resourceLoader 假设已加载完成
+ *
+ * 另导出 skillReadRoots(ctx):工作区外 skills 的只读放行根单一事实源,
+ * 主/子代理共用(workspaceGuard.extraAllowedRoots),见下方实现。
  */
 import { homedir } from 'node:os'
 import path from 'node:path'

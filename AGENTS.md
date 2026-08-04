@@ -19,7 +19,7 @@ Turborepo monorepo — 基于 **pi SDK** 的 Web Agent 工作台(聊天 + 工作
 - **统一响应结构**:`{ code, message, data }`,code 0 为成功;错误经 `app.onError` 统一格式化,不抛裸异常到前端
 - **数据隔离**:所有运行数据(API key / 工作区 / 会话)存 `.workflows/`,开发在仓库根、生产在 `~/.workflows`;**只读**例外:加载 skills 时读取 `~/.pi/agent/skills` 与 `~/.agents/skills`(见下方「Skills」),绝不写入任何 pi 全局配置
 - **会话模型**:一个工作区一个持久化会话(JSONL),上下文限定在工作区目录;只读工作区只给 `read/grep/find/ls` 工具
-- **工作区边界守卫**:工具不允许逃逸到工作区目录外——`src/pi/workspaceGuard.ts` 用 unbash 静态审计 bash 命令(重定向/文件命令/cd/嵌套替换,解析失败或含未知展开一律拒绝),read/write/edit/grep/find/ls 包装 execute 校验 path 参数;改动守卫时同步更新 `workspaceGuard.test.ts`
+- **工作区边界守卫**:工具不允许逃逸到工作区目录外——`src/pi/workspaceGuard.ts` 用 unbash 静态审计 bash 命令(重定向/文件命令/cd/嵌套替换,解析失败或含未知展开一律拒绝),read/write/edit/grep/find/ls 包装 execute 校验 path 参数;改动守卫时同步更新 `workspaceGuard.test.ts`。**唯一只读例外**:工作区外的 skills 目录(`~/.pi/agent/skills`、`~/.agents/skills`、prod 下 `~/.workflows/skills`)对 read/ls/fff-find/fff-grep 的参数校验放行(放行根见 `promptLoader.skillReadRoots`);write/edit/bash 一律不放行
 - **流式输出**:`POST /api/agent/workspaces/:id/prompt` 走 SSE,事件类型见 shared 的 `SessionEvent`;前端按模型输出顺序渲染(思考/正文/工具调用交错)
 - **端口**:开发 web 15200(代理 `/api` → 3000),生产 api 5200 单端口托管前端 + API;dev 脚本用 `cross-env NODE_ENV=development` 固定环境(曾出现 shell 残留 `NODE_ENV=production` 导致 dev 抢 5200 端口 EADDRINUSE 崩溃——改 dev 脚本前先查 `echo $NODE_ENV`)
 - **API key**:用户手动输入 DeepSeek key,存 `.workflows/config.json`,运行时注入 `ModelRuntime`,key 本身不返回前端
@@ -46,4 +46,5 @@ pnpm typecheck / lint / test
 - agent 四来源加载 skills:`~/.pi/agent/skills`(pi 全局,`PI_CODING_AGENT_DIR` 可重定向)、`<工作区>/.pi/skills`(项目)、`.workflows/skills`(工作台)、`~/.agents/skills`(全局 agents);**只读**,运行数据仍只写 `.workflows/`
 - `.workflows/agent/skills` **不是**来源(已从清单移除,勿放内容)
 - 实现:`apps/api/src/pi/promptLoader.ts`(`loadWorkspaceSkills`/`toSkillInfo`/`classifySkillSource`)、端点 `GET /api/agent/workspaces/:id/skills`、前端 `ChatPane.vue` `/` 下拉;测试 `skillsLoader.test.ts`(四来源隔离:env `PI_CODING_AGENT_DIR` + `homeDir` 注入,不触碰真实用户目录)
+- `skillReadRoots(ctx)` 为工作区外 skills 的只读放行根**单一事实源**,主/子代理共用(`piService.ts openSession` / `subAgent.ts runSubAgent`);改动它需同步 `workspaceGuard.test.ts`(放行/拦截/子树语义用例)
 - SKILL.md 格式与注意事项见 README「Skills」小节;新增/修改 skill 后需重开会话模型才感知
