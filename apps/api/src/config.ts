@@ -37,6 +37,8 @@ export interface WorkflowsStore {
   agentDir: string
   /** 用户自定义代理目录(同名覆盖内置 agents) */
   agentsDir: string
+  /** 工作台 skills 目录(<root>/.workflows/skills,来源之一) */
+  skillsDir: string
   configPath: string
   workspacesPath: string
   sessionsPath: string
@@ -53,10 +55,13 @@ export function createStore(): WorkflowsStore {
   ensureDir(agentDir)
   const agentsDir = path.join(root, 'agents')
   ensureDir(agentsDir)
+  const skillsDir = path.join(root, 'skills')
+  ensureDir(skillsDir)
   return {
     root,
     agentDir,
     agentsDir,
+    skillsDir,
     configPath: path.join(root, 'config.json'),
     workspacesPath: path.join(root, 'workspaces.json'),
     sessionsPath: path.join(root, 'workspace-sessions.json'),

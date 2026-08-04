@@ -48,6 +48,7 @@ function makeStore(dir: string): WorkflowsStore {
     root: dir,
     agentDir: path.join(dir, 'agent'),
     agentsDir: path.join(dir, 'agents'),
+    skillsDir: path.join(dir, 'skills'),
     configPath: path.join(dir, 'config.json'),
     workspacesPath: path.join(dir, 'workspaces.json'),
     sessionsPath: path.join(dir, 'workspace-sessions.json'),

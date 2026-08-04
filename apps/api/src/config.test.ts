@@ -20,6 +20,7 @@ function createTestStore(): WorkflowsStore {
     root,
     agentDir: path.join(root, 'agent'),
     agentsDir: path.join(root, 'agents'),
+    skillsDir: path.join(root, 'skills'),
     configPath: path.join(root, 'config.json'),
     workspacesPath: path.join(root, 'workspaces.json'),
     sessionsPath: path.join(root, 'workspace-sessions.json'),
