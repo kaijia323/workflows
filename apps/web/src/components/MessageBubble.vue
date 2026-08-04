@@ -54,27 +54,22 @@ function formatTokens(n: number | undefined): string {
     v-if="message.role === 'user'"
     class="flex justify-end pl-12"
   >
-    <div class="max-w-[85%] border border-signal/30 bg-signal/[0.05] px-3.5 py-2.5">
+    <div class="max-w-[85%] rounded-md border border-hairline bg-canvas-soft px-4 py-2.5">
       <div
-        class="md break-words text-[13px] leading-relaxed text-fg"
+        class="md break-words text-[13px] leading-relaxed text-ink"
         v-html="renderMarkdown(messageText(message))"
       />
     </div>
   </div>
 
-  <!-- 助手消息:节点卡 + 入边(端口)。内容严格按大模型输出顺序渲染:思考 / 正文 / 工具交错 -->
+  <!-- 助手消息:Warp 行式块(hairline 圆角块,内容严格按大模型输出顺序渲染:思考 / 正文 / 工具交错) -->
   <div
     v-else
-    class="relative flex pl-7"
+    class="flex"
   >
-    <!-- 入边:从上方端口下来的竖线 -->
-    <div class="absolute left-2.5 top-0 h-full w-px bg-edge">
-      <span class="absolute -left-[3px] top-1.5 size-[7px] border border-signal/60 bg-ink" />
-    </div>
-
     <div
-      class="min-w-0 max-w-full flex-1 border bg-raised/60 transition-colors"
-      :class="message.status === 'error' ? 'border-err/40' : 'border-edge'"
+      class="min-w-0 max-w-full flex-1 overflow-hidden rounded-md border bg-canvas transition-colors"
+      :class="message.status === 'error' ? 'border-err/40' : 'border-hairline'"
     >
       <template v-if="plan.length > 0">
         <template
@@ -84,35 +79,35 @@ function formatTokens(n: number | undefined): string {
           <!-- 思考片段 -->
           <div
             v-if="block.kind === 'thinking'"
-            class="border-t border-edge/70"
+            class="border-t border-hairline/60"
             :class="i === 0 ? 'border-t-0' : ''"
           >
             <button
               type="button"
-              class="flex w-full items-center gap-2 px-3.5 py-1.5 text-left font-mono text-[10px] tracking-wider text-wire transition hover:bg-wire/[0.06]"
+              class="flex w-full items-center gap-2 px-4 py-1.5 text-left font-mono text-[10px] tracking-wider text-mute transition hover:bg-canvas-soft"
               @click="emit('toggle-thinking', message, block.key)"
             >
               <span
                 class="inline-block w-3 text-center transition-transform duration-200"
                 :class="isThinkingBlockOpen(message, plan, block.key) ? 'rotate-90' : ''"
               ><ChevronRight class="size-3" /></span>
-              <span class="text-wire/80">THINKING</span>
-              <span class="ml-auto font-mono text-[9px] text-faint">{{ block.text.length }} chars</span>
+              <span class="text-mute">THINKING</span>
+              <span class="ml-auto font-mono text-[10px] text-mute">{{ block.text.length }} chars</span>
             </button>
             <pre
               v-if="isThinkingBlockOpen(message, plan, block.key)"
-              class="max-h-64 overflow-y-auto whitespace-pre-wrap break-words px-3.5 pb-3 pl-8 font-mono text-[11px] leading-relaxed text-wire/70"
+              class="max-h-64 overflow-y-auto whitespace-pre-wrap break-words px-4 pb-3 pl-8 font-mono text-[11px] leading-relaxed text-body"
             >{{ block.text }}</pre>
           </div>
 
           <!-- 正文片段 -->
           <div
             v-else-if="block.kind === 'text'"
-            class="px-3.5 py-3"
-            :class="i > 0 ? 'border-t border-edge/70' : ''"
+            class="px-4 py-3"
+            :class="i > 0 ? 'border-t border-hairline/60' : ''"
           >
             <div
-              class="md break-words text-[13px] leading-relaxed text-fg"
+              class="md break-words text-[13px] leading-relaxed text-ink"
               v-html="renderMarkdown(block.text) + (block.caret ? CARET_HTML : '')"
             />
           </div>
@@ -120,22 +115,22 @@ function formatTokens(n: number | undefined): string {
           <!-- 工具调用片段:按输出顺序穿插在思考 / 正文之间 -->
           <div
             v-else-if="block.kind === 'tool'"
-            class="border-t border-edge/70"
+            class="border-t border-hairline/60"
           >
             <button
               type="button"
-              class="flex w-full items-center gap-2 px-3.5 py-1.5 text-left transition hover:bg-ink/40"
+              class="flex w-full items-center gap-2 px-4 py-1.5 text-left transition hover:bg-canvas-soft"
               @click="emit('tool-click', message, block.tool.callId, block.tool.name)"
             >
               <span
                 class="size-1.5 shrink-0 rounded-full"
-                :class="block.tool.isError ? 'bg-err' : 'bg-ok'"
+                :class="block.tool.isError ? 'bg-err' : 'bg-primary'"
               />
-              <span class="font-display text-[10px] tracking-widest text-dim">{{ toolLabel(block.tool.name) }}</span>
-              <span class="truncate font-mono text-[10px] text-faint">{{ block.tool.name }}</span>
+              <span class="font-display text-[10px] tracking-widest text-body">{{ toolLabel(block.tool.name) }}</span>
+              <span class="truncate font-mono text-[10px] text-mute">{{ block.tool.name }}</span>
               <span
-                class="ml-auto flex shrink-0 items-center gap-1 font-mono text-[9px] tracking-wider"
-                :class="block.tool.isError ? 'text-err/80' : 'text-faint'"
+                class="ml-auto flex shrink-0 items-center gap-1 font-mono text-[10px] tracking-wider"
+                :class="block.tool.isError ? 'text-err/80' : 'text-mute'"
               >
                 <ChevronRight
                   v-if="block.tool.collapsed"
@@ -150,8 +145,8 @@ function formatTokens(n: number | undefined): string {
             </button>
             <pre
               v-if="!block.tool.collapsed && block.tool.output"
-              class="max-h-56 overflow-y-auto whitespace-pre-wrap break-words border-t border-edge/40 bg-ink/60 px-3.5 py-2.5 pl-7 font-mono text-[10.5px] leading-relaxed"
-              :class="block.tool.isError ? 'text-err/90' : 'text-dim'"
+              class="max-h-56 overflow-y-auto whitespace-pre-wrap break-words rounded-b-md border-t border-hairline/60 bg-canvas-soft px-4 py-2.5 pl-7 font-mono text-[11px] leading-relaxed"
+              :class="block.tool.isError ? 'text-err' : 'text-body'"
             >{{ block.tool.output }}</pre>
           </div>
         </template>
@@ -160,7 +155,7 @@ function formatTokens(n: number | undefined): string {
       <!-- 只有思考 / 工具、尚无正文时,流式期间显示光标 -->
       <div
         v-else-if="showCaretRow"
-        class="px-3.5 py-3"
+        class="px-4 py-3"
       >
         <span class="caret" />
       </div>
@@ -168,7 +163,7 @@ function formatTokens(n: number | undefined): string {
       <!-- 错误 -->
       <div
         v-if="message.status === 'error' && message.errorText"
-        class="border-t border-err/30 px-3.5 py-2"
+        class="border-t border-err/30 px-4 py-2"
       >
         <p class="font-mono text-[11px] text-err">
           <TriangleAlert class="mr-1 inline-block size-3.5 align-[-2px]" />
@@ -179,7 +174,7 @@ function formatTokens(n: number | undefined): string {
       <!-- 页脚:模型 + token -->
       <div
         v-if="message.model || message.usage?.totalTokens"
-        class="flex items-center gap-3 px-3.5 py-1.5 font-mono text-[9px] text-faint"
+        class="flex items-center gap-3 px-4 py-1.5 font-mono text-[10px] text-mute"
       >
         <span
           v-if="message.model"
@@ -201,11 +196,11 @@ function formatTokens(n: number | undefined): string {
   height: 13px;
   margin-left: 2px;
   vertical-align: text-bottom;
-  background: var(--color-signal);
+  background: var(--color-primary);
   animation: caret-blink 0.9s steps(2) infinite;
 }
 
-/* ---- markdown 正文:与「管线控制台」token 统一 ---- */
+/* ---- markdown 正文:与「VoltAgent」token 统一 ---- */
 :deep(.md) p {
   margin: 0.4em 0;
 }
@@ -234,7 +229,7 @@ function formatTokens(n: number | undefined): string {
   margin-bottom: 0;
 }
 
-/* 标题:显示字体 + 信号琥珀点缀,保持仪表台气质 */
+/* 标题:Inter display + hairline 分隔,保持控制台气质 */
 :deep(.md) h1,
 :deep(.md) h2,
 :deep(.md) h3,
@@ -243,11 +238,11 @@ function formatTokens(n: number | undefined): string {
   font-family: var(--font-display);
   font-weight: 600;
   letter-spacing: 0.01em;
-  color: var(--color-fg);
+  color: var(--color-ink);
 }
 :deep(.md) h1 {
   font-size: 1.1em;
-  border-bottom: 1px solid var(--color-edge);
+  border-bottom: 1px solid var(--color-hairline);
   padding-bottom: 0.25em;
 }
 :deep(.md) h2 {
@@ -258,25 +253,26 @@ function formatTokens(n: number | undefined): string {
   font-size: 1em;
 }
 
-/* 代码块:墨底 + 线缆蓝左边条,与工具输出的 pre 呼应 */
+/* 代码块:canvas-soft 底 + primary-deep 左边条,与工具输出的 pre 呼应 */
 :deep(.md) pre {
   margin: 0.5em 0;
   padding: 8px 10px;
   overflow-x: auto;
-  background: var(--color-ink);
-  border: 1px solid var(--color-edge);
-  border-left: 2px solid var(--color-wire-dim);
+  background: var(--color-canvas-soft);
+  border: 1px solid var(--color-hairline);
+  border-left: 2px solid var(--color-primary-deep);
   font-family: var(--font-mono);
-  font-size: 11.5px;
+  font-size: 12px;
   line-height: 1.55;
-  color: var(--color-dim);
+  color: var(--color-body);
 }
 :deep(.md) code {
   font-family: var(--font-mono);
   font-size: 0.92em;
   padding: 0.1em 0.35em;
-  border-radius: 3px;
-  background: color-mix(in srgb, var(--color-edge) 55%, transparent);
+  border-radius: 4px;
+  background: var(--color-canvas-soft);
+  color: var(--color-ink);
 }
 :deep(.md) pre code {
   padding: 0;
@@ -285,16 +281,16 @@ function formatTokens(n: number | undefined): string {
   color: inherit;
 }
 
-/* 链接:线缆蓝,新窗口打开 */
+/* 链接:primary-deep,新窗口打开 */
 :deep(.md) a {
-  color: var(--color-wire);
+  color: var(--color-primary-deep);
   text-decoration: underline;
-  text-decoration-color: var(--color-wire-dim);
+  text-decoration-color: var(--color-primary-deep);
   text-underline-offset: 2px;
 }
 :deep(.md) a:hover {
-  color: var(--color-signal);
-  text-decoration-color: var(--color-signal-dim);
+  color: var(--color-primary);
+  text-decoration-color: var(--color-primary);
 }
 
 /* 列表 / 引用 / 分割线 */
@@ -318,16 +314,16 @@ function formatTokens(n: number | undefined): string {
 :deep(.md) blockquote {
   margin: 0.5em 0;
   padding: 0.1em 0 0.1em 0.8em;
-  border-left: 2px solid var(--color-wire-dim);
-  color: var(--color-dim);
+  border-left: 2px solid color-mix(in srgb, var(--color-primary-deep) 60%, transparent);
+  color: var(--color-body);
 }
 :deep(.md) hr {
   margin: 0.7em 0;
   border: none;
-  border-top: 1px solid var(--color-edge);
+  border-top: 1px solid var(--color-hairline);
 }
 
-/* 表格:仪表盘式的细边框网格 */
+/* 表格:细边框网格 */
 :deep(.md) table {
   margin: 0.5em 0;
   width: 100%;
@@ -336,12 +332,12 @@ function formatTokens(n: number | undefined): string {
 }
 :deep(.md) th,
 :deep(.md) td {
-  border: 1px solid var(--color-edge);
+  border: 1px solid var(--color-hairline);
   padding: 4px 8px;
   text-align: left;
 }
 :deep(.md) th {
-  background: var(--color-raised);
+  background: var(--color-canvas-soft);
   font-family: var(--font-display);
   font-size: 0.92em;
   font-weight: 600;
@@ -349,15 +345,15 @@ function formatTokens(n: number | undefined): string {
 }
 
 :deep(.md) strong {
-  color: var(--color-fg);
+  color: var(--color-ink);
   font-weight: 600;
 }
 :deep(.md) del {
-  color: var(--color-faint);
+  color: var(--color-mute);
 }
 :deep(.md) input[type='checkbox'] {
   margin-right: 0.4em;
-  accent-color: var(--color-signal);
+  accent-color: var(--color-primary);
   vertical-align: -2px;
 }
 </style>

@@ -27,7 +27,7 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="flex h-screen flex-col overflow-hidden bg-ink font-body text-fg">
+  <div class="flex h-screen flex-col overflow-hidden bg-canvas font-body text-ink">
     <PipelineHeader
       :workspace="agent.activeWorkspace.value"
       :model="agent.config.value?.model ?? '—'"

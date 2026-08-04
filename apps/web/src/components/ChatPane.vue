@@ -138,27 +138,27 @@ async function rejectPlan(): Promise<void> {
 </script>
 
 <template>
-  <section class="flex min-w-0 flex-1 flex-col bg-ink">
+  <section class="flex min-w-0 flex-1 flex-col bg-canvas">
     <!-- 工作区头部:处理节点标签 -->
-    <div class="flex h-12 shrink-0 items-center gap-3 border-b border-edge px-5">
+    <div class="flex h-12 shrink-0 items-center gap-3 border-b border-hairline px-5">
       <template v-if="agent.activeWorkspace.value">
-        <span class="size-2 border border-signal/70 bg-signal/30" />
-        <span class="font-display text-xs tracking-widest text-fg">{{ agent.activeWorkspace.value.name }}</span>
-        <span class="max-w-72 truncate font-mono text-[10px] text-faint">{{ agent.activeWorkspace.value.path }}</span>
+        <span class="size-2 border border-primary/70 bg-primary/30" />
+        <span class="font-display text-xs tracking-widest text-ink">{{ agent.activeWorkspace.value.name }}</span>
+        <span class="max-w-72 truncate font-mono text-[10px] text-mute">{{ agent.activeWorkspace.value.path }}</span>
         <span
-          class="border px-1.5 py-px font-mono text-[9px] tracking-wider"
-          :class="agent.activeWorkspace.value.readOnly ? 'border-ok/40 text-ok/80' : 'border-faint/40 text-faint'"
+          class="rounded-full border px-2 py-px font-mono text-[10px]"
+          :class="agent.activeWorkspace.value.readOnly ? 'border-primary/40 text-primary' : 'border-hairline text-mute'"
         >
           {{ agent.activeWorkspace.value.readOnly ? '只读' : '读写' }}
         </span>
-        <span class="ml-auto font-mono text-[10px] text-faint">
+        <span class="ml-auto font-mono text-[10px] text-mute">
           {{ agent.status.value?.messageCount ?? 0 }} msgs
         </span>
         <SessionSwitcher :agent="agent" />
       </template>
       <span
         v-else
-        class="font-display text-xs tracking-widest text-faint"
+        class="font-display text-xs tracking-widest text-mute"
       >等待接入工作区</span>
     </div>
 
@@ -174,21 +174,21 @@ async function rejectPlan(): Promise<void> {
         class="grid h-full place-items-center"
       >
         <div class="max-w-sm text-center">
-          <div class="mx-auto grid size-14 place-items-center border border-edge bg-raised">
-            <span class="grid size-6 place-items-center border border-wire/50 bg-wire/10">
-              <span class="size-1.5 bg-wire" />
+          <div class="mx-auto grid size-14 place-items-center rounded-md border border-hairline bg-canvas-soft">
+            <span class="grid size-6 place-items-center rounded-sm border border-primary/50 bg-primary/10">
+              <span class="size-1.5 bg-primary" />
             </span>
           </div>
-          <h2 class="mt-5 font-display text-sm tracking-[0.25em] text-fg">
+          <h2 class="mt-5 font-display text-sm tracking-[0.25em] text-ink">
             AGENT 控制台
           </h2>
-          <p class="mt-3 text-xs leading-relaxed text-dim">
+          <p class="mt-3 text-xs leading-relaxed text-body">
             在左侧选择工作区,<br>agent 将在该目录内读取、分析并修改代码。
           </p>
           <button
             v-if="!agent.hasApiKey.value"
             type="button"
-            class="mt-6 border border-signal/50 bg-signal/10 px-5 py-2 font-display text-[11px] tracking-widest text-signal transition hover:bg-signal/20"
+            class="mt-6 rounded-sm bg-primary px-5 py-2 font-display text-[11px] tracking-widest text-on-primary transition hover:bg-primary-soft"
             @click="onOpenSettings"
           >
             配置 DeepSeek API KEY
@@ -213,30 +213,30 @@ async function rejectPlan(): Promise<void> {
     </div>
 
     <!-- 输入区 -->
-    <div class="shrink-0 border-t border-edge bg-panel/60 px-5 pb-3.5 pt-3">
+    <div class="shrink-0 border-t border-hairline bg-canvas px-5 pb-3.5 pt-3">
       <!-- 闸门:计划待批准 -->
       <div
         v-if="agent.gateRequest.value"
-        class="mb-2.5 border border-signal/50 bg-signal/5 px-3.5 py-3"
+        class="mb-2.5 rounded-md border border-primary/50 bg-primary/5 px-4 py-3"
       >
         <div class="flex items-center gap-2">
-          <span class="grid size-4 place-items-center border border-signal/70 bg-signal/10 text-signal"><Pause class="size-3" /></span>
-          <span class="font-display text-[10px] tracking-[0.2em] text-signal">计划待批准</span>
+          <span class="grid size-4 place-items-center rounded-sm border border-primary/70 bg-primary/10 text-primary"><Pause class="size-3" /></span>
+          <span class="font-display text-[10px] tracking-[0.2em] text-primary">计划待批准</span>
           <span
             v-if="agent.gateRequest.value.planFile"
-            class="truncate font-mono text-[9px] text-faint"
+            class="truncate font-mono text-[10px] text-mute"
           >{{ agent.gateRequest.value.planFile }}</span>
         </div>
         <p
           v-if="agent.gateRequest.value.summary"
-          class="mt-2 text-[12px] leading-relaxed text-dim"
+          class="mt-2 text-xs leading-relaxed text-body"
         >
           {{ agent.gateRequest.value.summary }}
         </p>
         <div class="mt-2.5 flex items-center gap-2">
           <button
             type="button"
-            class="border border-ok/60 bg-ok/10 px-4 py-1.5 font-display text-[10px] tracking-widest text-ok transition hover:bg-ok/20 disabled:opacity-40"
+            class="rounded-sm bg-primary px-4 py-1.5 font-display text-[10px] tracking-widest text-on-primary transition hover:bg-primary-soft disabled:opacity-40"
             :disabled="agent.streaming.value"
             @click="approvePlan"
           >
@@ -247,11 +247,11 @@ async function rejectPlan(): Promise<void> {
             type="text"
             :disabled="agent.streaming.value"
             placeholder="驳回意见(回 planner 修改)…"
-            class="min-w-0 flex-1 border border-edge bg-ink px-2.5 py-1.5 text-[11px] text-fg placeholder:text-faint focus:border-signal/60"
+            class="min-w-0 flex-1 rounded-sm border border-hairline bg-canvas-soft px-3 py-1.5 text-[13px] text-ink placeholder:text-mute focus:border-primary"
           >
           <button
             type="button"
-            class="shrink-0 border border-err/50 bg-err/5 px-3 py-1.5 font-display text-[10px] tracking-widest text-err transition hover:bg-err/15 disabled:opacity-40"
+            class="shrink-0 rounded-sm border border-err/60 px-3 py-1.5 font-display text-[10px] tracking-widest text-err transition hover:bg-err/10 disabled:opacity-40"
             :disabled="!rejectDraft.trim() || agent.streaming.value"
             @click="rejectPlan"
           >
@@ -268,13 +268,13 @@ async function rejectPlan(): Promise<void> {
       </p>
       <p
         v-if="!agent.hasApiKey.value"
-        class="mb-2 flex items-center gap-2 font-mono text-[10px] text-signal/90"
+        class="mb-2 flex items-center gap-2 font-mono text-[10px] text-primary/90"
       >
-        <span class="size-1.5 animate-pulse rounded-full bg-signal" />
+        <span class="size-1.5 animate-pulse rounded-full bg-primary" />
         尚未配置 API key ——
         <button
           type="button"
-          class="underline decoration-dotted underline-offset-2 hover:text-signal"
+          class="underline decoration-dotted underline-offset-2 hover:text-primary"
           @click="onOpenSettings"
         >
           立即配置
@@ -288,13 +288,13 @@ async function rejectPlan(): Promise<void> {
           rows="1"
           spellcheck="false"
           :placeholder="agent.activeWorkspaceId.value ? '输入指令,Enter 发送,Shift+Enter 换行…' : '先在左侧选择一个工作区'"
-          class="max-h-40 min-h-[40px] flex-1 resize-none border border-edge bg-ink px-3.5 py-2.5 text-[13px] leading-relaxed text-fg placeholder:text-faint focus:border-signal/60 disabled:opacity-50"
+          class="max-h-40 min-h-[40px] flex-1 resize-none rounded-sm border border-hairline bg-canvas-soft px-4 py-2.5 text-[14px] leading-relaxed text-ink placeholder:text-mute focus:border-primary disabled:opacity-50"
           @keydown="onKeydown"
         />
         <button
           v-if="agent.streaming.value"
           type="button"
-          class="shrink-0 border border-err/50 bg-err/10 px-4 py-2.5 font-display text-[11px] tracking-widest text-err transition hover:bg-err/20"
+          class="shrink-0 rounded-sm border border-err/60 bg-err/10 px-4 py-2.5 font-display text-[11px] tracking-widest text-err transition hover:bg-err/20"
           @click="agent.abort()"
         >
           停止
@@ -302,7 +302,7 @@ async function rejectPlan(): Promise<void> {
         <button
           v-else
           type="button"
-          class="shrink-0 border border-signal/60 bg-signal px-4 py-2.5 font-display text-[11px] font-semibold tracking-widest text-ink transition hover:bg-signal/90 disabled:opacity-40"
+          class="shrink-0 rounded-sm bg-primary px-4 py-2.5 font-display text-[11px] font-semibold tracking-widest text-on-primary transition hover:bg-primary-soft disabled:opacity-40"
           :disabled="!draft.trim() || !agent.activeWorkspaceId.value"
           @click="handleSend"
         >
@@ -313,14 +313,14 @@ async function rejectPlan(): Promise<void> {
       <!-- 模型 / 思考级别快速切换(聊天框下方) -->
       <div class="mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-1.5">
         <div class="flex items-center gap-1.5">
-          <span class="font-display text-[9px] tracking-[0.2em] text-faint">MODEL</span>
-          <div class="flex gap-px border border-edge bg-ink p-px">
+          <span class="font-display text-[10px] tracking-[0.2em] text-mute">MODEL</span>
+          <div class="flex gap-px rounded-sm border border-hairline bg-canvas-soft p-px">
             <button
               v-for="m in agent.config.value?.models ?? []"
               :key="m.id"
               type="button"
-              class="px-2 py-1 font-mono text-[10px] transition disabled:opacity-40"
-              :class="agent.config.value?.model === m.id ? 'bg-signal/15 text-signal' : 'text-dim hover:text-fg'"
+              class="rounded-[3px] px-2 py-1 font-mono text-[10px] transition disabled:opacity-40"
+              :class="agent.config.value?.model === m.id ? 'bg-primary/15 text-primary' : 'text-body hover:text-ink'"
               :disabled="agent.streaming.value"
               @click="agent.switchModel(m.id)"
             >
@@ -330,14 +330,14 @@ async function rejectPlan(): Promise<void> {
         </div>
 
         <div class="flex items-center gap-1.5">
-          <span class="font-display text-[9px] tracking-[0.2em] text-faint">THINK</span>
-          <div class="flex gap-px border border-edge bg-ink p-px">
+          <span class="font-display text-[10px] tracking-[0.2em] text-mute">THINK</span>
+          <div class="flex gap-px rounded-sm border border-hairline bg-canvas-soft p-px">
             <button
               v-for="level in agent.config.value?.thinkingLevels ?? ['off']"
               :key="level"
               type="button"
-              class="px-2 py-1 font-mono text-[10px] transition disabled:opacity-40"
-              :class="agent.config.value?.thinkingLevel === level ? 'bg-wire/15 text-wire' : 'text-dim hover:text-fg'"
+              class="rounded-[3px] px-2 py-1 font-mono text-[10px] transition disabled:opacity-40"
+              :class="agent.config.value?.thinkingLevel === level ? 'bg-primary/15 text-primary' : 'text-body hover:text-ink'"
               :disabled="agent.streaming.value"
               @click="agent.switchThinking(level)"
             >
@@ -353,7 +353,7 @@ async function rejectPlan(): Promise<void> {
         >
           <button
             type="button"
-            class="flex items-center gap-1 border border-edge px-2 py-1 font-mono text-[9px] text-faint transition hover:text-fg"
+            class="flex items-center gap-1 rounded-sm border border-hairline px-2 py-1 font-mono text-[10px] text-mute transition hover:text-ink"
             @click="toggleAllThinking"
           >
             THINKING

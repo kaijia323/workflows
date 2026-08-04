@@ -1,35 +1,45 @@
 @import "tailwindcss";
 
 /*
- * workflows 设计 token —— 「管线控制台」
- * 主题:DAG 流水线工作台。界面即一条管线:左栏工作区(源节点)→ 中栏 agent(处理节点)→ 右栏观测(输出节点)。
- * 配色:石墨蓝画布 + 信号琥珀(激活/流动)+ 线缆蓝(连接)
+ * workflows 设计 token —— 「VoltAgent 视觉语言」
+ * 主题:近黑画布 #101010 + 单一电光绿 #00d992 强调 + 1px hairline 分层 + 4px 间距体系。
+ * 语义:primary = CTA/状态徽标/激活/运行/成功;err = 驳回/失败(唯一红)。
+ * 界面即一条管线:左栏工作区(源)→ 中栏 agent(处理)→ 右栏观测(输出)。
+ * 注意语义反转:--color-ink 是文本色(非背景),背景统一用 --color-canvas。
  */
 @theme {
   /* 画布与层级 */
-  --color-ink: #0d1017;
-  --color-panel: #141923;
-  --color-raised: #1b2230;
-  --color-edge: #253041;
-  --color-edge-soft: #1c2431;
+  --color-canvas: #101010;
+  --color-canvas-soft: #1a1a1a;
+  --color-canvas-soft-2: #202020;
+  --color-hairline: #3d3a39;
 
   /* 文本 */
-  --color-fg: #e8ecf3;
-  --color-dim: #8a94a8;
-  --color-faint: #5b6577;
+  --color-ink: #f2f2f2;
+  --color-ink-strong: #ffffff;
+  --color-body: #bdbdbd;
+  --color-mute: #8b949e;
 
-  /* 语义色:信号琥珀 = 激活/流动,线缆蓝 = 连接/信息,ok/err 少量使用 */
-  --color-signal: #f0a83c;
-  --color-signal-dim: #b47a26;
-  --color-wire: #5c8bee;
-  --color-wire-dim: #3d5f9e;
-  --color-ok: #3fbf74;
-  --color-err: #e4574f;
+  /* 语义色:单一电光绿 = CTA/状态/激活/运行/成功;err 红仅驳回/失败 */
+  --color-primary: #00d992;
+  --color-primary-soft: #2fd6a1;
+  --color-primary-deep: #10b981;
+  --color-on-primary: #101010;
+  --color-err: #f2555a;
 
   /* 字体 */
-  --font-display: "Chakra Petch", "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
-  --font-body: "Instrument Sans", "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-display: "Inter", "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-body: "Inter", "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
   --font-mono: "JetBrains Mono", "Noto Sans Mono CJK SC", monospace;
+
+  /* 圆角:4px 极小 / 6px 按钮与输入 / 8px 卡片与消息块;9999px 胶囊仅内联状态徽标 */
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+
+  /* 阴影:分层靠 hairline 描边;glow 仅 hover/激活;重投影仅模态窗 */
+  --shadow-glow: 0 0 15px rgba(0, 217, 146, 0.18);
+  --shadow-modal: 0 20px 60px rgba(0, 0, 0, 0.7), inset 0 0 0 1px rgba(148, 163, 184, 0.1);
 
   /* 动效 */
   --ease-flow: cubic-bezier(0.65, 0, 0.35, 1);
@@ -43,8 +53,8 @@ body,
 }
 
 body {
-  background: var(--color-ink);
-  color: var(--color-fg);
+  background: var(--color-canvas);
+  color: var(--color-ink);
   font-family: var(--font-body);
   -webkit-font-smoothing: antialiased;
 }
@@ -55,11 +65,11 @@ body {
   height: 8px;
 }
 *::-webkit-scrollbar-thumb {
-  background: var(--color-edge);
+  background: var(--color-hairline);
   border-radius: 4px;
 }
 *::-webkit-scrollbar-thumb:hover {
-  background: var(--color-faint);
+  background: var(--color-mute);
 }
 *::-webkit-scrollbar-track {
   background: transparent;
@@ -67,12 +77,12 @@ body {
 
 /* 选中色 */
 ::selection {
-  background: color-mix(in srgb, var(--color-signal) 30%, transparent);
+  background: color-mix(in srgb, var(--color-primary) 30%, transparent);
 }
 
 /* 键盘焦点可见 */
 :focus-visible {
-  outline: 1.5px solid var(--color-signal);
+  outline: 1.5px solid var(--color-primary);
   outline-offset: 1px;
 }
 

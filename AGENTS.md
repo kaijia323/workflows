@@ -6,6 +6,12 @@ workflows 项目给 AI 编码 agent 的上下文速览。精简概念,详见 REA
 
 Turborepo monorepo — 基于 **pi SDK** 的 Web Agent 工作台(聊天 + 工作区 + 工具调用),附带 DAG 骨架示例接口。
 
+## 前端 UI 风格
+
+- 前端 UI 统一遵循 `designs/voltagent/DESIGN.md`(主设计规范:近黑画布 `#101010` + 电光绿 `#00d992`、Inter + JetBrains Mono、4px 间距、6/8px 圆角、hairline 分层)
+- 消息块渲染另参考 `designs/warp/DESIGN.md`(辅助)
+- **任何前端 UI 改动前必须先阅读上述设计文件**,遵循其中的 token 与风格;不得引入与设计规范冲突的颜色/字体/间距
+
 ## 结构
 
 | 包 | 职责 |

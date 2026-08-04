@@ -60,42 +60,42 @@ function openNode(node: DagNodeState): void {
 function statusClass(status: DagNodeState['status']): string {
   switch (status) {
     case 'running':
-      return 'border-signal/70 bg-signal/10'
+      return 'border-primary bg-primary/10'
     case 'done':
-      return 'border-ok/50 bg-ok/5'
+      return 'border-primary/40 bg-primary/5'
     case 'error':
       return 'border-err/60 bg-err/5'
     default:
-      return 'border-edge bg-raised'
+      return 'border-hairline bg-canvas-soft'
   }
 }
 
 function statusDot(status: DagNodeState['status']): string {
   switch (status) {
     case 'running':
-      return 'bg-signal animate-pulse'
+      return 'bg-primary animate-pulse'
     case 'done':
-      return 'bg-ok'
+      return 'bg-primary/80'
     case 'error':
       return 'bg-err'
     default:
-      return 'bg-faint'
+      return 'bg-mute'
   }
 }
 
-function wireClass(status: DagNodeState['status']): string {
-  return status === 'done' || status === 'error' ? 'bg-ok/60' : 'bg-edge'
+function connectorClass(status: DagNodeState['status']): string {
+  return status === 'done' || status === 'error' ? 'bg-primary/50' : 'bg-hairline'
 }
 </script>
 
 <template>
-  <div class="border-b border-edge bg-panel/40 px-4 py-3">
+  <div class="border-b border-hairline bg-canvas px-4 py-3">
     <div class="flex items-center justify-between">
-      <span class="font-display text-[10px] font-semibold tracking-[0.2em] text-faint">流程 · PIPELINE</span>
+      <span class="font-display text-[10px] font-semibold tracking-[0.2em] text-mute">流程 · PIPELINE</span>
       <span
         v-if="runStatus"
-        class="font-mono text-[9px] tracking-wider"
-        :class="gatePending ? 'text-signal' : 'text-faint'"
+        class="font-mono text-[10px] tracking-wider"
+        :class="gatePending ? 'text-primary' : 'text-mute'"
       >
         {{ gatePending ? '待批准' : runStatus }}
       </span>
@@ -119,12 +119,12 @@ function wireClass(status: DagNodeState['status']): string {
             :class="statusDot(nodes[0].status)"
           />
         </span>
-        <span class="font-display text-[9px] tracking-wider text-dim">探索</span>
+        <span class="font-display text-[10px] tracking-wider text-body">探索</span>
       </button>
 
       <span
         class="mx-1 h-px w-5"
-        :class="wireClass(nodes[0].status)"
+        :class="connectorClass(nodes[0].status)"
       />
 
       <!-- 计划 -->
@@ -143,17 +143,17 @@ function wireClass(status: DagNodeState['status']): string {
             :class="statusDot(nodes[1].status)"
           />
         </span>
-        <span class="font-display text-[9px] tracking-wider text-dim">计划</span>
+        <span class="font-display text-[10px] tracking-wider text-body">计划</span>
       </button>
 
       <!-- 闸门 -->
       <span
         class="mx-1 flex h-px w-5 items-center"
-        :class="wireClass(nodes[1].status)"
+        :class="connectorClass(nodes[1].status)"
       >
         <span
           class="mx-auto grid size-3.5 place-items-center border"
-          :class="gatePending ? 'border-signal/80 bg-signal/15 text-signal' : 'border-edge text-faint'"
+          :class="gatePending ? 'border-primary bg-primary/15 text-primary' : 'border-hairline text-mute'"
           title="人工闸门:计划需用户批准"
         >
           <Pause class="size-2.5" />
@@ -176,15 +176,15 @@ function wireClass(status: DagNodeState['status']): string {
             :class="statusDot(nodes[2].status)"
           />
         </span>
-        <span class="font-display text-[9px] tracking-wider text-dim">执行</span>
+        <span class="font-display text-[10px] tracking-wider text-body">执行</span>
       </button>
 
       <!-- 执行 ⇄ 审查回边 -->
       <span
         class="mx-1 flex h-px w-5 items-center"
-        :class="wireClass(nodes[2].status)"
+        :class="connectorClass(nodes[2].status)"
       >
-        <span class="mx-auto text-faint"><ArrowLeftRight class="size-3" /></span>
+        <span class="mx-auto text-mute"><ArrowLeftRight class="size-3" /></span>
       </span>
 
       <!-- 审查 -->
@@ -204,17 +204,17 @@ function wireClass(status: DagNodeState['status']): string {
           />
           <span
             v-if="nodes[3].rounds > 1"
-            class="absolute -right-1.5 -top-1.5 grid size-3.5 place-items-center border border-edge bg-ink font-mono text-[8px] text-dim"
+            class="absolute -right-1.5 -top-1.5 grid size-3.5 place-items-center rounded-sm border border-hairline bg-canvas font-mono text-[8px] text-body"
           >{{ nodes[3].rounds }}</span>
         </span>
-        <span class="font-display text-[9px] tracking-wider text-dim">审查</span>
+        <span class="font-display text-[10px] tracking-wider text-body">审查</span>
       </button>
     </div>
 
     <!-- 闸门提示 -->
     <p
       v-if="gatePending"
-      class="mt-2.5 border border-signal/40 bg-signal/5 px-2.5 py-1.5 font-mono text-[9.5px] leading-relaxed text-signal"
+      class="mt-2.5 rounded-sm border border-primary/40 bg-primary/5 px-2.5 py-1.5 font-mono text-[10px] leading-relaxed text-primary"
     >
       <Pause class="mr-1 inline-block size-3 align-[-2px]" /> 计划待批准<template v-if="planFile">
         :{{ planFile }}
@@ -222,7 +222,7 @@ function wireClass(status: DagNodeState['status']): string {
     </p>
     <p
       v-else-if="!agent.run.value"
-      class="mt-2.5 font-mono text-[9px] leading-relaxed text-faint"
+      class="mt-2.5 font-mono text-[10px] leading-relaxed text-mute"
     >
       下发需求后,流程节点在此实时流转。点击节点查看子代理详情。
     </p>

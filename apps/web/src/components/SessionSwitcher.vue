@@ -83,30 +83,30 @@ onBeforeUnmount(() => {
   >
     <button
       type="button"
-      class="flex items-center gap-1.5 border border-edge px-2 py-0.5 font-mono text-[9px] tracking-wider text-dim transition hover:border-signal/50 hover:text-signal"
+      class="flex items-center gap-1.5 rounded-sm border border-hairline px-2 py-1 font-mono text-[10px] text-body transition hover:border-primary/50 hover:text-primary"
       title="会话管理(切换 / 新建 / 删除)"
       @click="open = !open"
     >
-      <span class="size-1.5 border border-faint/60 bg-faint/30" />
+      <span class="size-1.5 border border-mute/60 bg-mute/30" />
       {{ active ? formatTime(active.createdAt) : '新建会话' }}
-      <ChevronDown class="size-3 text-faint" />
+      <ChevronDown class="size-3 text-mute" />
     </button>
 
     <div
       v-if="open"
-      class="absolute right-0 top-full z-20 mt-1.5 w-60 border border-edge bg-panel shadow-xl"
+      class="absolute right-0 top-full z-20 mt-1.5 w-60 rounded-md border border-hairline bg-canvas shadow-modal"
     >
-      <div class="flex items-center justify-between border-b border-edge px-3 py-1.5">
-        <span class="font-display text-[9px] tracking-[0.2em] text-faint">会话 · SESSIONS</span>
-        <span class="font-mono text-[9px] text-faint">{{ sessions.length }}</span>
+      <div class="flex items-center justify-between border-b border-hairline px-3 py-1.5">
+        <span class="font-display text-[10px] tracking-[0.2em] text-mute">会话 · SESSIONS</span>
+        <span class="font-mono text-[10px] text-mute">{{ sessions.length }}</span>
       </div>
 
       <div class="max-h-60 overflow-y-auto">
         <div
           v-for="s in sessions"
           :key="s.id"
-          class="flex items-center border-b border-edge/60 transition-colors last:border-b-0"
-          :class="s.id === activeId ? 'bg-signal/[0.06]' : 'hover:bg-raised'"
+          class="flex items-center border-b border-hairline/60 transition-colors last:border-b-0"
+          :class="s.id === activeId ? 'bg-primary/[0.06]' : 'hover:bg-canvas-soft'"
         >
           <button
             type="button"
@@ -115,19 +115,19 @@ onBeforeUnmount(() => {
           >
             <span
               class="block font-mono text-[10px]"
-              :class="s.id === activeId ? 'text-signal' : 'text-fg'"
+              :class="s.id === activeId ? 'text-primary' : 'text-ink'"
             >
               {{ formatTime(s.createdAt) }}
             </span>
-            <span class="mt-0.5 block font-mono text-[9px] text-faint">{{ s.messageCount }} msgs</span>
+            <span class="mt-0.5 block font-mono text-[10px] text-mute">{{ s.messageCount }} msgs</span>
           </button>
           <span
             v-if="s.id === activeId"
-            class="size-1 shrink-0 bg-signal"
+            class="size-1 shrink-0 bg-primary"
           />
           <button
             type="button"
-            class="shrink-0 px-2.5 py-2 font-mono text-[12px] leading-none text-faint transition hover:text-err"
+            class="shrink-0 px-2.5 py-2 font-mono text-[12px] leading-none text-mute transition hover:text-err"
             title="删除会话(历史文件一并移除)"
             @click="handleDelete(s.id)"
           >
@@ -136,7 +136,7 @@ onBeforeUnmount(() => {
         </div>
         <p
           v-if="sessions.length === 0"
-          class="px-3 py-3 font-mono text-[10px] text-faint"
+          class="px-3 py-3 font-mono text-[10px] text-mute"
         >
           暂无会话,新建后开始
         </p>
@@ -144,7 +144,7 @@ onBeforeUnmount(() => {
 
       <button
         type="button"
-        class="flex w-full items-center gap-1.5 border-t border-edge px-3 py-2 text-left font-display text-[10px] tracking-widest text-signal transition hover:bg-signal/10"
+        class="flex w-full items-center gap-1.5 border-t border-hairline px-3 py-2 text-left font-display text-[10px] tracking-widest text-primary transition hover:bg-primary/10"
         @click="handleNew"
       >
         <Plus class="size-3" />
@@ -153,7 +153,7 @@ onBeforeUnmount(() => {
 
       <p
         v-if="error"
-        class="border-t border-edge px-3 py-1.5 font-mono text-[10px] text-err"
+        class="border-t border-hairline px-3 py-1.5 font-mono text-[10px] text-err"
       >
         {{ error }}
       </p>

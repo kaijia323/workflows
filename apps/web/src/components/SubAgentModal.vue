@@ -79,26 +79,26 @@ function toggleTool(msg: UiMessage, callId: string): void {
 <template>
   <!-- 遮罩 -->
   <div
-    class="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-ink/70 p-6 backdrop-blur-sm"
+    class="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-canvas/80 p-6 backdrop-blur-sm"
     @click.self="emit('close')"
   >
-    <div class="flex max-h-[85vh] w-full max-w-3xl flex-col border border-edge bg-panel shadow-2xl shadow-black/40">
+    <div class="flex max-h-[85vh] w-full max-w-3xl flex-col rounded-md border border-hairline bg-canvas shadow-modal">
       <!-- 标题 -->
-      <div class="flex shrink-0 items-center gap-3 border-b border-edge px-5 py-3">
-        <span class="grid size-4 place-items-center border border-signal/60 bg-signal/10">
-          <span class="size-1 bg-signal" />
+      <div class="flex shrink-0 items-center gap-3 border-b border-hairline px-5 py-3">
+        <span class="grid size-4 place-items-center rounded-sm border border-primary/60 bg-primary/10">
+          <span class="size-1 bg-primary" />
         </span>
-        <span class="font-display text-xs tracking-[0.2em] text-fg">{{ agentName }}</span>
-        <span class="truncate font-mono text-[9.5px] text-faint">{{ callId }}</span>
+        <span class="font-display text-[14px] tracking-[0.15em] text-ink">{{ agentName }}</span>
+        <span class="truncate font-mono text-[10px] text-mute">{{ callId }}</span>
         <span
-          class="ml-auto font-mono text-[9px] tracking-wider"
-          :class="live?.status === 'running' ? 'text-signal' : live?.status === 'error' ? 'text-err' : 'text-faint'"
+          class="ml-auto font-mono text-[10px] tracking-wider"
+          :class="live?.status === 'running' ? 'text-primary' : live?.status === 'error' ? 'text-err' : 'text-mute'"
         >
           {{ live?.status === 'running' ? '● 运行中' : live?.status === 'error' ? '失败' : '完成' }}
         </span>
         <button
           type="button"
-          class="grid size-6 place-items-center border border-edge text-faint transition hover:border-err/60 hover:text-err"
+          class="grid size-6 place-items-center rounded-sm border border-hairline text-mute transition hover:border-err/60 hover:text-err"
           aria-label="关闭"
           @click="emit('close')"
         >
@@ -109,11 +109,11 @@ function toggleTool(msg: UiMessage, callId: string): void {
       <!-- 思考块全局操作:与主会话同一逻辑(仅当有思考内容时显示) -->
       <div
         v-if="messages.some(hasThinking)"
-        class="flex shrink-0 items-center justify-end border-b border-edge px-5 py-1.5"
+        class="flex shrink-0 items-center justify-end border-b border-hairline px-5 py-1.5"
       >
         <button
           type="button"
-          class="flex items-center gap-1 border border-edge px-2 py-1 font-mono text-[9px] text-faint transition hover:text-fg"
+          class="flex items-center gap-1 rounded-sm border border-hairline px-2 py-1 font-mono text-[10px] text-mute transition hover:text-ink"
           @click="toggleAllThinking"
         >
           THINKING
@@ -125,7 +125,7 @@ function toggleTool(msg: UiMessage, callId: string): void {
       <div class="min-h-0 flex-1 overflow-y-auto px-5 py-4">
         <div
           v-if="historyLoading"
-          class="py-10 text-center font-mono text-[10px] text-faint"
+          class="py-10 text-center font-mono text-[10px] text-mute"
         >
           加载历史…
         </div>
@@ -150,24 +150,24 @@ function toggleTool(msg: UiMessage, callId: string): void {
         <p
           v-else
           class="py-10 text-center font-mono text-[10px]"
-          :class="live?.status === 'running' ? 'text-signal' : live?.status === 'error' ? 'text-err' : 'text-faint'"
+          :class="live?.status === 'running' ? 'text-primary' : live?.status === 'error' ? 'text-err' : 'text-mute'"
         >
           {{ live?.status === 'running' ? '● 运行中,消息即将到达…' : live?.status === 'error' ? '执行失败,未收到任何消息' : '(无消息)' }}
         </p>
       </div>
 
       <!-- 底部:摘要 + 产物 -->
-      <div class="shrink-0 border-t border-edge px-5 py-3">
+      <div class="shrink-0 border-t border-hairline px-5 py-3">
         <p
           v-if="summary"
-          class="text-[11px] leading-relaxed text-dim"
+          class="text-xs leading-relaxed text-body"
         >
-          <span class="font-display text-[9px] tracking-[0.2em] text-faint">摘要 </span>
+          <span class="font-display text-[10px] tracking-[0.2em] text-mute">摘要 </span>
           {{ summary }}
         </p>
         <p
           v-if="artifact"
-          class="mt-1.5 font-mono text-[9.5px] text-faint"
+          class="mt-1.5 font-mono text-[10px] text-mute"
         >
           <span class="tracking-[0.2em]">产物 </span>
           {{ artifact }}

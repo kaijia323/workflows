@@ -230,28 +230,28 @@ onMounted(() => {
 
 <template>
   <div
-    class="fixed inset-0 z-50 grid place-items-center bg-ink/80 backdrop-blur-sm"
+    class="fixed inset-0 z-50 grid place-items-center bg-canvas/80 backdrop-blur-sm"
     @click.self="emit('close')"
   >
-    <div class="modal-in w-[620px] max-w-[94vw] border border-edge bg-panel shadow-2xl shadow-black/50">
+    <div class="modal-in w-[620px] max-w-[94vw] rounded-md border border-hairline bg-canvas shadow-modal">
       <!-- 头部 -->
       <div class="flex items-center justify-between px-4 pb-2 pt-3.5">
-        <span class="font-display text-xs font-semibold tracking-[0.2em] text-fg">添加工作区 · SOURCE</span>
+        <span class="font-display text-[14px] font-semibold tracking-[0.15em] text-ink">添加工作区 · SOURCE</span>
         <button
           type="button"
-          class="border border-edge px-2 py-0.5 font-mono text-[10px] text-dim transition hover:border-err/50 hover:text-err"
+          class="rounded-sm border border-hairline px-2 py-0.5 font-mono text-[10px] text-body transition hover:border-err/50 hover:text-err"
           @click="emit('close')"
         >
           关闭
         </button>
       </div>
 
-      <!-- 面包屑提示符:祖先段可点击跳转,当前段信号色 -->
+      <!-- 面包屑提示符:祖先段可点击跳转,当前段强调色 -->
       <div
         v-if="listing"
-        class="flex items-center overflow-x-auto border-b border-edge px-4 py-2 font-mono text-[11px]"
+        class="flex items-center overflow-x-auto border-b border-hairline px-4 py-2 font-mono text-[11px]"
       >
-        <ChevronRight class="mr-2 size-3 shrink-0 text-signal" />
+        <ChevronRight class="mr-2 size-3 shrink-0 text-primary" />
         <template
           v-for="(seg, i) in segments"
           :key="seg.path"
@@ -259,7 +259,7 @@ onMounted(() => {
           <button
             v-if="!seg.current"
             type="button"
-            class="shrink-0 text-faint transition hover:text-signal"
+            class="shrink-0 text-mute transition hover:text-primary"
             @mousedown.prevent
             @click="loadDir(seg.path)"
           >
@@ -267,11 +267,11 @@ onMounted(() => {
           </button>
           <span
             v-else
-            class="shrink-0 text-fg"
+            class="shrink-0 text-ink"
           >{{ seg.label }}</span>
           <span
             v-if="i < segments.length - 1"
-            class="mx-1 shrink-0 text-faint/50"
+            class="mx-1 shrink-0 text-mute/50"
           >{{ isWinPath(segments[0].path) ? '\\' : '/' }}</span>
         </template>
       </div>
@@ -285,7 +285,7 @@ onMounted(() => {
           spellcheck="false"
           autocomplete="off"
           placeholder="过滤当前目录 — 输入以搜索"
-          class="w-full border border-edge bg-ink px-3 py-2 font-mono text-xs text-fg caret-signal placeholder:text-faint focus:border-signal/60"
+          class="w-full rounded-sm border border-hairline bg-canvas-soft px-3 py-2 font-mono text-xs text-ink caret-primary placeholder:text-mute focus:border-primary"
           @keydown="onKeydown"
           @input="onQueryInput"
         >
@@ -294,17 +294,17 @@ onMounted(() => {
       <!-- 条目列表 -->
       <div
         ref="listRef"
-        class="h-[264px] overflow-y-auto border-y border-edge bg-ink/40 p-1"
+        class="h-[264px] overflow-y-auto border-y border-hairline bg-canvas p-1"
       >
         <p
           v-if="loading"
-          class="px-3 py-2.5 font-mono text-[11px] text-faint"
+          class="px-3 py-2.5 font-mono text-[11px] text-mute"
         >
           读取中<span class="animate-[breathe_1.2s_ease-in-out_infinite]">…</span>
         </p>
         <p
           v-else-if="rows.length === 0"
-          class="px-3 py-2.5 font-mono text-[11px] text-faint"
+          class="px-3 py-2.5 font-mono text-[11px] text-mute"
         >
           {{ query.trim() ? '无匹配目录' : '空目录 — 可直接确认添加' }}
         </p>
@@ -312,11 +312,11 @@ onMounted(() => {
           v-for="row in rows"
           :key="row.name"
           type="button"
-          class="flex w-full items-center gap-1.5 border-l-2 px-3 py-[5px] text-left font-mono text-[11.5px] transition-colors"
+          class="flex w-full items-center gap-1.5 rounded-sm border-l-2 px-3 py-[5px] text-left font-mono text-[12px] transition-colors"
           :class="
             row.name === selectedName
-              ? 'border-signal bg-signal/[0.07]'
-              : 'border-transparent hover:bg-raised'
+              ? 'border-primary bg-primary/[0.07]'
+              : 'border-transparent hover:bg-canvas-soft'
           "
           :data-selected="row.name === selectedName ? '' : undefined"
           @mousedown.prevent
@@ -327,25 +327,25 @@ onMounted(() => {
             class="truncate"
             :class="
               row.isParent
-                ? 'text-faint'
+                ? 'text-mute'
                 : row.name.startsWith('.')
-                  ? 'text-faint'
+                  ? 'text-mute'
                   : row.name === selectedName
-                    ? 'text-fg'
-                    : 'text-dim'
+                    ? 'text-ink'
+                    : 'text-body'
             "
           >{{ row.pre }}<span
             v-if="row.mid"
-            class="text-signal"
+            class="text-primary"
           >{{ row.mid }}</span>{{ row.post }}</span>
-          <span class="shrink-0 text-wire/70">/</span>
+          <span class="shrink-0 text-primary-deep/70">/</span>
         </button>
       </div>
 
       <!-- 错误行 -->
       <p
         v-if="error"
-        class="border-t border-edge px-4 py-1.5 font-mono text-[10px] text-err"
+        class="border-t border-hairline px-4 py-1.5 font-mono text-[10px] text-err"
       >
         <X class="mr-1 inline-block size-3 align-[-1px]" />
         {{ error }}
@@ -355,23 +355,23 @@ onMounted(() => {
       <div class="flex items-end justify-between gap-4 px-4 py-3">
         <div class="min-w-0 flex-1">
           <p
-            class="truncate font-mono text-[10px] text-faint"
+            class="truncate font-mono text-[10px] text-mute"
             :title="listing?.path"
           >
             {{ listing?.path ?? '—' }}
           </p>
-          <p class="mt-1 font-mono text-[9px] leading-relaxed text-faint/80">
+          <p class="mt-1 font-mono text-[9px] leading-relaxed text-mute/80">
             {{ query.trim() ? `${filtered.length} 项匹配` : `${listing?.entries.length ?? 0} 项` }}
             · ⏎ 进入选中 · ⇥ 补全 · ↑↓ 选择 · ←/⌫ 上级 · 双击进入
           </p>
         </div>
         <button
           type="button"
-          class="shrink-0 border px-4 py-1.5 font-display text-[11px] tracking-widest transition disabled:opacity-40"
+          class="shrink-0 rounded-sm border px-4 py-1.5 font-display text-[11px] tracking-widest transition disabled:opacity-40"
           :class="
             isCurrentWorkspace
-              ? 'border-ok/50 bg-ok/10 text-ok'
-              : 'border-signal/50 bg-signal/10 text-signal hover:bg-signal/20'
+              ? 'border-primary/50 bg-primary/5 text-primary'
+              : 'bg-primary text-on-primary hover:bg-primary-soft'
           "
           :disabled="adding || !listing || isCurrentWorkspace"
           @click="confirmAdd"
