@@ -123,8 +123,8 @@ async function handleSend() {
 }
 
 function onKeydown(event: KeyboardEvent) {
-  // 菜单打开且有匹配项:方向键循环高亮、Enter 选中填入(不发送)、Esc 关闭。
-  // IME 组合输入(中文输入法)期间不拦截,避免误选。
+  // 菜单打开且有匹配项:方向键循环高亮、Enter/Tab 选中填入(不发送)、Esc 关闭。
+  // IME 组合输入(中文输入法)期间不拦截,避免误选;菜单未打开时 Tab 走浏览器默认(焦点移动)。
   if (skillMenuOpen.value && filteredSkills.value.length > 0 && !event.isComposing) {
     const count = filteredSkills.value.length
     if (event.key === 'ArrowDown') {
@@ -138,6 +138,13 @@ function onKeydown(event: KeyboardEvent) {
       return
     }
     if (event.key === 'Enter' && !event.shiftKey) {
+      event.preventDefault()
+      const skill = filteredSkills.value[skillIndex.value]
+      if (skill) selectSkill(skill)
+      return
+    }
+    if (event.key === 'Tab') {
+      // 与 Enter 同行为:选中当前高亮 skill 填入 /skill:<name>(不发送);preventDefault 避免焦点移出输入框
       event.preventDefault()
       const skill = filteredSkills.value[skillIndex.value]
       if (skill) selectSkill(skill)
@@ -403,7 +410,7 @@ async function rejectPlan(): Promise<void> {
             :disabled="!agent.activeWorkspaceId.value"
             rows="1"
             spellcheck="false"
-            :placeholder="agent.activeWorkspaceId.value ? '输入指令,Enter 发送,Shift+Enter 换行…' : '先在左侧选择一个工作区'"
+            :placeholder="agent.activeWorkspaceId.value ? '输入消息,输入 / 可搜索 skills,Enter 发送,Shift+Enter 换行…' : '先在左侧选择一个工作区'"
             class="max-h-40 min-h-[40px] w-full resize-none rounded-sm border border-hairline bg-canvas-soft px-4 py-2.5 text-[14px] leading-relaxed text-ink placeholder:text-mute focus:border-primary disabled:opacity-50"
             @keydown="onKeydown"
             @blur="skillMenuOpen = false"

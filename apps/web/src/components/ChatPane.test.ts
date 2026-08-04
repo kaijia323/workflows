@@ -28,6 +28,8 @@ interface PaneOptions {
   skills?: SkillInfo[]
   streaming?: boolean
   workspaceId?: string | null
+  /** 挂载到 document.body(jsdom 仅在元素已连接时 focus() 才生效,用于焦点断言) */
+  attachTo?: boolean
 }
 
 function mountPane(options: PaneOptions = {}) {
@@ -58,7 +60,10 @@ function mountPane(options: PaneOptions = {}) {
     abort: vi.fn(async () => {}),
     dismissGate: vi.fn(),
   } as unknown as AgentStore
-  const wrapper = mount(ChatPane, { props: { agent, onOpenSettings: () => {} } })
+  const wrapper = mount(ChatPane, {
+    props: { agent, onOpenSettings: () => {} },
+    attachTo: options.attachTo ? document.body : undefined,
+  })
   return { wrapper, agent, sendMessage, skills, activeWorkspaceId }
 }
 
@@ -120,6 +125,73 @@ describe('ChatPane / skill 搜索下拉', () => {
     expect(sendMessage).not.toHaveBeenCalled()
     // 选中后菜单关闭
     expect(wrapper.text()).not.toContain('/skill:greet')
+  })
+
+  it('Tab 选中当前高亮 skill 填入 /skill:<name>,preventDefault 且焦点不丢失', async () => {
+    const { wrapper, sendMessage } = mountPane({ skills: SKILLS, attachTo: true })
+    const textarea = wrapper.find('textarea')
+
+    await textarea.setValue('/')
+    await flushPromises()
+    await textarea.trigger('keydown', { key: 'ArrowDown' }) // 高亮 → summarize(索引 1)
+    await textarea.trigger('keydown', { key: 'Tab' })
+    await flushPromises()
+
+    expect((textarea.element as HTMLTextAreaElement).value).toBe('/skill:summarize ')
+    expect(sendMessage).not.toHaveBeenCalled()
+    // 菜单关闭
+    expect(wrapper.text()).not.toContain('/skill:greet')
+    // 焦点仍在输入框(未因 Tab 移出)
+    expect(document.activeElement).toBe(textarea.element)
+
+    // 下拉打开时 Tab 触发 preventDefault
+    await textarea.setValue('/')
+    await flushPromises()
+    const ev = new KeyboardEvent('keydown', { key: 'Tab', cancelable: true, bubbles: true })
+    textarea.element.dispatchEvent(ev)
+    expect(ev.defaultPrevented).toBe(true)
+
+    wrapper.unmount()
+  })
+
+  it('下拉未打开时 Tab 不拦截(保持浏览器默认焦点移动)', async () => {
+    const { wrapper, sendMessage } = mountPane({ skills: SKILLS })
+    const textarea = wrapper.find('textarea')
+
+    await textarea.setValue('hello')
+    await flushPromises()
+
+    const ev = new KeyboardEvent('keydown', { key: 'Tab', cancelable: true, bubbles: true })
+    textarea.element.dispatchEvent(ev)
+
+    expect(ev.defaultPrevented).toBe(false)
+    expect((textarea.element as HTMLTextAreaElement).value).toBe('hello')
+    expect(sendMessage).not.toHaveBeenCalled()
+  })
+
+  it('IME 组合输入中 Tab 不触发选择', async () => {
+    const { wrapper } = mountPane({ skills: SKILLS })
+    const textarea = wrapper.find('textarea')
+
+    await textarea.setValue('/')
+    await flushPromises()
+    expect(wrapper.text()).toContain('/skill:greet')
+
+    const ev = new KeyboardEvent('keydown', { key: 'Tab', isComposing: true, cancelable: true, bubbles: true })
+    textarea.element.dispatchEvent(ev)
+    await flushPromises()
+
+    expect(ev.defaultPrevented).toBe(false)
+    expect((textarea.element as HTMLTextAreaElement).value).toBe('/')
+    expect(wrapper.text()).toContain('/skill:greet') // 菜单保持打开
+  })
+
+  it('占位符提示 / 可搜索 skills;无工作区时保持原提示', async () => {
+    const { wrapper } = mountPane({ workspaceId: 'ws-1' })
+    expect(wrapper.find('textarea').attributes('placeholder')).toContain('/ 可搜索 skills')
+
+    const noWs = mountPane({ workspaceId: null })
+    expect(noWs.wrapper.find('textarea').attributes('placeholder')).toBe('先在左侧选择一个工作区')
   })
 
   it('Esc 关闭下拉,不改变输入', async () => {
