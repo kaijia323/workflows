@@ -1,5 +1,5 @@
 import { computed, reactive, ref } from 'vue'
-import type { AgentConfig, HistoryItem, RunSnapshot, SessionEvent, SessionList, SessionMeta, SessionStatus, Workspace } from '@workflows/shared'
+import type { AgentConfig, HistoryItem, RunSnapshot, SessionEvent, SessionList, SessionMeta, SessionStatus, SkillInfo, Workspace } from '@workflows/shared'
 
 export interface UiToolRun {
   callId: string
@@ -161,6 +161,8 @@ export function useAgent() {
   const subSessions = reactive(new Map<string, UiSubSession>())
   /** 闸门请求(等待用户批准) */
   const gateRequest = ref<UiGateRequest | null>(null)
+  /** 当前工作区可用 skills(输入框 / 搜索下拉数据源) */
+  const skills = ref<SkillInfo[]>([])
 
   // 当前流式 assistant 消息(增量累积)
   let pending: UiMessage | null = null
@@ -275,7 +277,7 @@ export function useAgent() {
     const data = await request<SessionData>(`/api/agent/workspaces/${id}/open`, { method: 'POST' })
     activeWorkspaceId.value = id
     applySessionData(data)
-    await refreshRun()
+    await Promise.all([refreshRun(), refreshSkills()])
   }
 
   /** 新建会话:旧会话 JSONL 全部保留,新会话成为当前 */
@@ -580,6 +582,20 @@ export function useAgent() {
     }
   }
 
+  /** 拉取当前工作区 skills(输入框 / 搜索);失败静默置空,不阻塞聊天 */
+  async function refreshSkills(): Promise<void> {
+    const workspaceId = activeWorkspaceId.value
+    if (!workspaceId) {
+      skills.value = []
+      return
+    }
+    try {
+      skills.value = await request<SkillInfo[]>(`/api/agent/workspaces/${workspaceId}/skills`)
+    } catch {
+      skills.value = []
+    }
+  }
+
   /** 子代理历史回看(模态窗;实时数据缺失时调用) */
   async function fetchSubHistory(callId: string): Promise<UiMessage[]> {
     const workspaceId = activeWorkspaceId.value
@@ -697,6 +713,7 @@ export function useAgent() {
     run,
     subSessions,
     gateRequest,
+    skills,
     hasApiKey,
     hasAnySearchApiKey,
     init,
@@ -717,6 +734,7 @@ export function useAgent() {
     abort,
     refreshStatus,
     refreshRun,
+    refreshSkills,
     fetchSubHistory,
     dismissGate,
   }

@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { nextTick, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { ArrowUpDown, Pause } from '@lucide/vue'
+import type { SkillInfo, SkillSource } from '@workflows/shared'
 import type { AgentStore, PlanBlock, UiMessage } from '../composables/useAgent'
 import { findToolSegment, hasThinking, isThinkingBlockOpen, messageText, planBlocks } from '../composables/useAgent'
 import MessageBubble from './MessageBubble.vue'
@@ -21,9 +22,67 @@ const emit = defineEmits<{
 
 const draft = ref('')
 const scroller = ref<HTMLElement | null>(null)
+const textareaRef = ref<HTMLTextAreaElement | null>(null)
 const stickToBottom = ref(true)
 const sendError = ref<string | null>(null)
 const rejectDraft = ref('')
+
+/* ---------------- / skill 搜索下拉 ---------------- */
+
+const skillMenuOpen = ref(false)
+const skillIndex = ref(0)
+/** 查询词:draft 以 / 开头时取 / 之后的部分,否则空串 */
+const skillQuery = computed(() => (draft.value.startsWith('/') ? draft.value.slice(1) : ''))
+const allSkills = computed(() => props.agent.skills.value)
+
+const SOURCE_LABEL: Record<SkillSource, string> = {
+  'pi-agent': '全局(pi)',
+  'pi-project': '项目',
+  workspace: '工作台',
+  'global-agents': '全局(agents)',
+  path: '其他',
+}
+
+/** 过滤:名称前缀 > 名称包含 > 描述包含,取前 8 条;空查询 = 全量 */
+const filteredSkills = computed(() => {
+  const q = skillQuery.value.trim().toLowerCase()
+  const all = allSkills.value
+  if (!q) return all.slice(0, 8)
+  const prefix: SkillInfo[] = []
+  const contains: SkillInfo[] = []
+  const desc: SkillInfo[] = []
+  for (const s of all) {
+    const name = s.name.toLowerCase()
+    if (name.startsWith(q)) prefix.push(s)
+    else if (name.includes(q)) contains.push(s)
+    else if (s.description.toLowerCase().includes(q)) desc.push(s)
+  }
+  return [...prefix, ...contains, ...desc].slice(0, 8)
+})
+
+watch(
+  () => [skillQuery.value, props.agent.streaming.value, props.agent.activeWorkspaceId.value] as const,
+  (current, previous: readonly [string, boolean, string | null]) => {
+    const [query, streaming, workspaceId] = current
+    const prevWorkspace = previous[2]
+    // 切工作区:直接关闭(下拉属于旧工作区)
+    if (workspaceId !== prevWorkspace) {
+      skillMenuOpen.value = false
+      return
+    }
+    // 打开条件:draft 以 / 开头、非流式、有匹配(空查询 = 全量展示)
+    const shouldOpen =
+      draft.value.startsWith('/') && !streaming && (query.trim() === '' || filteredSkills.value.length > 0)
+    skillMenuOpen.value = shouldOpen
+    if (shouldOpen) skillIndex.value = 0
+  },
+)
+
+function selectSkill(skill: SkillInfo) {
+  draft.value = `/skill:${skill.name} `
+  skillMenuOpen.value = false
+  nextTick(() => textareaRef.value?.focus())
+}
 
 function onScroll() {
   const el = scroller.value
@@ -63,6 +122,33 @@ async function handleSend() {
 }
 
 function onKeydown(event: KeyboardEvent) {
+  // 菜单打开且有匹配项:方向键循环高亮、Enter 选中填入(不发送)、Esc 关闭。
+  // IME 组合输入(中文输入法)期间不拦截,避免误选。
+  if (skillMenuOpen.value && filteredSkills.value.length > 0 && !event.isComposing) {
+    const count = filteredSkills.value.length
+    if (event.key === 'ArrowDown') {
+      event.preventDefault()
+      skillIndex.value = (skillIndex.value + 1) % count
+      return
+    }
+    if (event.key === 'ArrowUp') {
+      event.preventDefault()
+      skillIndex.value = (skillIndex.value - 1 + count) % count
+      return
+    }
+    if (event.key === 'Enter' && !event.shiftKey) {
+      event.preventDefault()
+      const skill = filteredSkills.value[skillIndex.value]
+      if (skill) selectSkill(skill)
+      return
+    }
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      skillMenuOpen.value = false
+      return
+    }
+  }
+  // 菜单打开但无匹配(或 IME 组合中):Enter/Esc 走原逻辑(不拦截)
   if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
     event.preventDefault()
     void handleSend()
@@ -282,15 +368,46 @@ async function rejectPlan(): Promise<void> {
       </p>
 
       <div class="flex items-end gap-2">
-        <textarea
-          v-model="draft"
-          :disabled="!agent.activeWorkspaceId.value"
-          rows="1"
-          spellcheck="false"
-          :placeholder="agent.activeWorkspaceId.value ? '输入指令,Enter 发送,Shift+Enter 换行…' : '先在左侧选择一个工作区'"
-          class="max-h-40 min-h-[40px] flex-1 resize-none rounded-sm border border-hairline bg-canvas-soft px-4 py-2.5 text-[14px] leading-relaxed text-ink placeholder:text-mute focus:border-primary disabled:opacity-50"
-          @keydown="onKeydown"
-        />
+        <div class="relative flex-1">
+          <!-- / skill 搜索下拉(选中后填入 /skill:<name>,由用户回车发送) -->
+          <div
+            v-if="skillMenuOpen"
+            class="absolute bottom-full left-0 right-0 z-20 mb-1.5 max-h-64 overflow-y-auto rounded-md border border-hairline bg-canvas shadow-lg"
+          >
+            <button
+              v-for="(skill, i) in filteredSkills"
+              :key="skill.name"
+              type="button"
+              class="flex w-full items-center gap-2 px-3 py-2 text-left transition"
+              :class="i === skillIndex ? 'bg-primary/10' : 'hover:bg-canvas-soft'"
+              @mousedown.prevent
+              @click="selectSkill(skill)"
+            >
+              <span class="shrink-0 font-mono text-[12px] text-ink">/skill:{{ skill.name }}</span>
+              <span class="min-w-0 flex-1 truncate text-[11px] text-mute">{{ skill.description }}</span>
+              <span class="shrink-0 rounded-sm border border-hairline px-1.5 py-px font-mono text-[9px] text-mute">
+                {{ SOURCE_LABEL[skill.source] }}
+              </span>
+            </button>
+            <p
+              v-if="filteredSkills.length === 0"
+              class="px-3 py-2 font-mono text-[11px] text-mute"
+            >
+              无可用 skill
+            </p>
+          </div>
+          <textarea
+            ref="textareaRef"
+            v-model="draft"
+            :disabled="!agent.activeWorkspaceId.value"
+            rows="1"
+            spellcheck="false"
+            :placeholder="agent.activeWorkspaceId.value ? '输入指令,Enter 发送,Shift+Enter 换行…' : '先在左侧选择一个工作区'"
+            class="max-h-40 min-h-[40px] w-full resize-none rounded-sm border border-hairline bg-canvas-soft px-4 py-2.5 text-[14px] leading-relaxed text-ink placeholder:text-mute focus:border-primary disabled:opacity-50"
+            @keydown="onKeydown"
+            @blur="skillMenuOpen = false"
+          />
+        </div>
         <button
           v-if="agent.streaming.value"
           type="button"
