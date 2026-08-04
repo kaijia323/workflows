@@ -18,7 +18,7 @@ import { createWorkspaceBashHook, guardPathTool, toToolDefinition } from './work
 import { createFffFindTool, createFffGrepTool, FffIndexManager } from './fffTools.js'
 import { createAnySearchTools } from './anySearchTools.js'
 import { getAgentDefinitions } from './agentDefs.js'
-import { createPromptOnlyLoader } from './promptLoader.js'
+import { createPromptOnlyLoader, loadWorkspaceSkills, toSkillInfo, type SkillLoadContext } from './promptLoader.js'
 import { runSubAgent, SubAgentError, type SubAgentResult } from './subAgent.js'
 import { renderHistory } from './history.js'
 import {
@@ -38,6 +38,7 @@ import type {
   SessionEvent,
   SessionMeta,
   SessionStatus,
+  SkillInfo,
   Workspace,
 } from '@workflows/shared'
 import {
@@ -290,7 +291,11 @@ export class PiAgentService {
     subAgentTools.push(this.createCompleteTaskTool(workspace))
 
     // 主代理 system prompt:默认 prompt + orchestrator 调度策略(追加,不替换默认规则)
-    const mainResourceLoader = createPromptOnlyLoader(undefined, orchestrator ? [orchestrator.body] : undefined)
+    // skills:四来源加载(pi 全局 ~/.pi/agent/skills + 项目 .pi/skills + 工作台 .workflows/skills + 全局 ~/.agents/skills)
+    const mainResourceLoader = createPromptOnlyLoader({
+      appendSystemPrompt: orchestrator ? [orchestrator.body] : undefined,
+      skills: { cwd: workspace.path, skillsDir: this.store.skillsDir },
+    })
 
     const { session } = await createAgentSession({
       cwd: workspace.path,
@@ -654,6 +659,12 @@ export class PiAgentService {
       lastActivityAt: handle?.lastActivityAt ?? null,
       usage: handle ? { ...handle.usage } : undefined,
     }
+  }
+
+  /** 工作区可用 skills(前端输入框 / 搜索;每次现扫现返回,新增 skill 立即可见) */
+  listSkills(workspace: Workspace): SkillInfo[] {
+    const ctx: SkillLoadContext = { cwd: workspace.path, skillsDir: this.store.skillsDir }
+    return loadWorkspaceSkills(ctx).skills.map((s) => toSkillInfo(s, ctx))
   }
 
   /** 发送消息,事件通过回调流式转发(SSE) */

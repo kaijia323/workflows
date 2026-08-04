@@ -154,6 +154,12 @@ export function registerAgentRoutes(app: Hono, store: WorkflowsStore, pi: PiAgen
 
   /* ---------------- 会话 ---------------- */
 
+  // 工作区可用 skills 列表(输入框 / 搜索数据源;每次现扫,新增 skill 立即可见)
+  app.get('/api/agent/workspaces/:id/skills', (c) => {
+    const workspace = requireWorkspace(store, c.req.param('id'))
+    return c.json({ code: 0, message: 'ok', data: pi.listSkills(workspace) })
+  })
+
   // 打开工作区会话并恢复历史
   app.post('/api/agent/workspaces/:id/open', async (c) => {
     const workspace = requireWorkspace(store, c.req.param('id'))

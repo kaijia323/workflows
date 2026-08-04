@@ -343,7 +343,11 @@ export async function runSubAgent(options: RunSubAgentOptions): Promise<SubAgent
   const sessionManager = SessionManager.create(workspace.path, sessionDir)
 
   // system prompt:md 正文 + 任务运行约定;经轻量 ResourceLoader 注入(SDK 原生支持)
-  const resourceLoader = createPromptOnlyLoader(definition.body)
+  // skills:与主代理共用同一 SkillLoadContext(四来源),保证主/子代理 skills 一致
+  const resourceLoader = createPromptOnlyLoader({
+    systemPrompt: definition.body,
+    skills: { cwd: workspace.path, skillsDir: store.skillsDir },
+  })
 
   const { session } = await createAgentSession({
     cwd: workspace.path,
