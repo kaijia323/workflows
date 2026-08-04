@@ -12,9 +12,11 @@ import {
   classifySkillSource,
   createPromptOnlyLoader,
   loadWorkspaceSkills,
+  skillReadRoots,
   toSkillInfo,
   type SkillLoadContext,
 } from './promptLoader.js'
+import { isAllowedTargetPath } from './workspaceGuard.js'
 
 let tmpHome: string
 let tmpStore: string
@@ -152,6 +154,61 @@ describe('loadWorkspaceSkills 四来源', () => {
     const result = loadWorkspaceSkills(ctx)
 
     expect(result.skills.some((s) => s.name === 'legacy')).toBe(false)
+  })
+})
+
+describe('skillReadRoots 只读放行根', () => {
+  it('四来源映射:env 重定向优先 + skillsDir 在 cwd 外 ⇒ 三根', () => {
+    const roots = skillReadRoots(ctx)
+    expect(roots).toEqual([
+      path.join(tmpHome, 'pi-agent', 'skills'),
+      path.join(tmpHome, '.agents', 'skills'),
+      path.join(tmpStore, 'skills'),
+    ])
+  })
+
+  it('dev 场景:skillsDir 在 cwd 内被过滤(工作区内冗余根)', () => {
+    const devCtx: SkillLoadContext = {
+      cwd: tmpWs,
+      skillsDir: path.join(tmpWs, '.workflows', 'skills'),
+      homeDir: tmpHome,
+    }
+    const roots = skillReadRoots(devCtx)
+    expect(roots).toEqual([
+      path.join(tmpHome, 'pi-agent', 'skills'),
+      path.join(tmpHome, '.agents', 'skills'),
+    ])
+  })
+
+  it('env 未重定向时来源 a 回落 <homeDir>/.pi/agent/skills', () => {
+    vi.stubEnv('PI_CODING_AGENT_DIR', '')
+    const roots = skillReadRoots(ctx)
+    expect(roots[0]).toBe(path.join(tmpHome, '.pi', 'agent', 'skills'))
+  })
+
+  it('去重:skillsDir 与来源 d 重合时不重复', () => {
+    const dupCtx: SkillLoadContext = {
+      cwd: tmpWs,
+      skillsDir: path.join(tmpHome, '.agents', 'skills'),
+      homeDir: tmpHome,
+    }
+    const roots = skillReadRoots(dupCtx)
+    expect(roots).toHaveLength(2)
+    expect(roots).toEqual([
+      path.join(tmpHome, 'pi-agent', 'skills'),
+      path.join(tmpHome, '.agents', 'skills'),
+    ])
+  })
+
+  it('与 guard 联动:skills 根下放行,兄弟路径拦截(子树语义)', () => {
+    const roots = skillReadRoots(ctx)
+    expect(
+      isAllowedTargetPath(path.join(tmpHome, '.agents', 'skills', 'translate', 'SKILL.md'), tmpWs, roots),
+    ).toBe(true)
+    // 兄弟路径:tmpHome 在 os.tmpdir() 下会被临时目录白名单放行,用两级 .. 逃出 tmpdir
+    expect(isAllowedTargetPath(path.join(tmpHome, '..', '..', 'config.json'), tmpWs, roots)).toBe(false)
+    // 工作区内路径不受放行根影响(回归)
+    expect(isAllowedTargetPath(path.join(tmpWs, 'src', 'a.ts'), tmpWs, roots)).toBe(true)
   })
 })
 

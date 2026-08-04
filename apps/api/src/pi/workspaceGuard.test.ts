@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
@@ -14,6 +14,7 @@ import {
   auditBashCommand,
   createWorkspaceBashHook,
   guardPathTool,
+  isAllowedTargetPath,
   isPathWithinWorkspace,
   normalizeBashPath,
   toToolDefinition,
@@ -276,6 +277,86 @@ describe('guardPathTool', () => {
   })
 })
 
+describe('extraAllowedRoots 只读放行根', () => {
+  type Exec = (toolCallId: string, params: { path?: string }) => Promise<unknown>
+
+  function makeDef(): { def: ToolDefinition; executed: string[] } {
+    const executed: string[] = []
+    const def = {
+      name: 'read',
+      label: 'read',
+      description: 'read a file',
+      parameters: {},
+      execute: async (_toolCallId: string, params: { path?: string }) => {
+        executed.push(params.path ?? '')
+        return { content: [{ type: 'text', text: 'ok' }] }
+      },
+    } as unknown as ToolDefinition
+    return { def, executed }
+  }
+
+  function callExecute(def: ToolDefinition, params: { path?: string }): Promise<unknown> {
+    return (def.execute as unknown as Exec)('id', params)
+  }
+
+  const home = process.env.HOME ?? process.env.USERPROFILE
+  expect(home).toBeTruthy()
+  const skillsRoot = path.join(home!, '.agents', 'skills')
+
+  it('放行根内路径放行(子树语义),原 execute 执行', async () => {
+    const { def, executed } = makeDef()
+    guardPathTool(def, WS, [skillsRoot])
+    const skillPath = path.join(skillsRoot, 'grill-me', 'SKILL.md')
+    const result = await callExecute(def, { path: skillPath })
+    expect(executed).toEqual([skillPath])
+    expect((result as { content: unknown }).content).toBeTruthy()
+  })
+
+  it('放行根外(兄弟路径)仍拦,原 execute 不执行', async () => {
+    const { def, executed } = makeDef()
+    guardPathTool(def, WS, [skillsRoot])
+    await expect(callExecute(def, { path: path.join(home!, '.agents', 'config.json') })).rejects.toThrow(
+      /工作区边界拦截/,
+    )
+    expect(executed).toEqual([])
+  })
+
+  it('.. 逃逸出放行根仍拦', async () => {
+    const { def, executed } = makeDef()
+    guardPathTool(def, WS, [skillsRoot])
+    await expect(callExecute(def, { path: path.join(skillsRoot, '..', 'secret.txt') })).rejects.toThrow(
+      /工作区边界拦截/,
+    )
+    expect(executed).toEqual([])
+  })
+
+  it('缺省行为回归:不传 extraAllowedRoots 时 skills 路径仍拦', async () => {
+    const { def, executed } = makeDef()
+    guardPathTool(def, WS)
+    await expect(callExecute(def, { path: path.join(skillsRoot, 'grill-me', 'SKILL.md') })).rejects.toThrow(
+      /工作区边界拦截/,
+    )
+    expect(executed).toEqual([])
+  })
+
+  it('~ 形式经 normalizeBashPath 展开后放行;兄弟路径 ~ 形式仍拦', () => {
+    expect(isAllowedTargetPath('~/.agents/skills/grill-me/SKILL.md', WS, [skillsRoot])).toBe(true)
+    expect(isAllowedTargetPath('~/.agents/config.json', WS, [skillsRoot])).toBe(false)
+  })
+
+  it('win32 大小写折叠:root 小写、target 原大小写仍放行', () => {
+    if (process.platform === 'win32') {
+      const lowerRoot = skillsRoot.toLowerCase()
+      expect(isAllowedTargetPath(path.join(skillsRoot, 'grill-me', 'SKILL.md'), WS, [lowerRoot])).toBe(true)
+    }
+  })
+
+  it('bash 不放行回归:放行根不作用于 bash 层,cat 读 skills 仍拦', () => {
+    expect(auditBashCommand('cat ~/.agents/skills/grill-me/SKILL.md', WS).length).toBeGreaterThan(0)
+    expect(auditBashCommand('cat C:\\Users\\kaijia\\.agents\\skills\\grill-me\\SKILL.md', WS).length).toBeGreaterThan(0)
+  })
+})
+
 describe('真实 AgentSession 集成', () => {
   const tempDirs: string[] = []
   function tempDir(): string {
@@ -324,6 +405,46 @@ describe('真实 AgentSession 集成', () => {
       isError?: boolean
     }
     expect(result.isError ?? false).toBe(false)
+  })
+
+  it('extraAllowedRoots:真实 read 工具可读放行根内文件;放行根外兄弟路径仍拦', async () => {
+    const wsPath = tempDir()
+    const agentDir = tempDir()
+    const extraRoot = path.join(path.dirname(wsPath), `extra-${path.basename(wsPath)}`)
+    tempDirs.push(extraRoot)
+    mkdirSync(path.join(extraRoot, 'grill-me'), { recursive: true })
+    writeFileSync(path.join(extraRoot, 'grill-me', 'SKILL.md'), '---\nname: grill-me\ndescription: x\n---\nbody', 'utf-8')
+
+    const readTool = createReadOnlyTools(wsPath).find((t) => t.name === 'read')!
+    const guarded = [guardPathTool(toToolDefinition(readTool), wsPath, [extraRoot])]
+    const { session } = await createAgentSession({
+      cwd: wsPath,
+      agentDir,
+      sessionManager: SessionManager.inMemory(wsPath),
+      customTools: guarded,
+    })
+
+    const readDef = session.getToolDefinition('read')!
+    // 放行根内 SKILL.md → 真实读取成功
+    const result = (await readDef.execute(
+      'id5',
+      { path: path.join(extraRoot, 'grill-me', 'SKILL.md') },
+      undefined,
+      undefined,
+      undefined as never,
+    )) as { isError?: boolean }
+    expect(result.isError ?? false).toBe(false)
+    // 放行根外(兄弟路径)→ 拦截
+    // 注意:.. 回到 tmpdir 会被临时目录白名单放行,故用两级 .. 逃出 tmpdir
+    await expect(
+      readDef.execute(
+        'id6',
+        { path: path.join(extraRoot, '..', '..', 'config.json') },
+        undefined,
+        undefined,
+        undefined as never,
+      ),
+    ).rejects.toThrow(/工作区边界拦截/)
   })
 
   it('只读工作区工具集带守卫', async () => {
