@@ -1,13 +1,13 @@
 {
   "runId": "dbc5f020",
   "sessionId": "0139bd56-93df-44bd-83a4-36a08576257f",
-  "status": "planning",
+  "status": "done",
   "gate": {
     "pending": false,
     "planFile": null
   },
   "createdAt": 1785848111814,
-  "updatedAt": 1785848406633,
+  "updatedAt": 1785848477363,
   "agents": [
     {
       "callId": "call_00_G7b4VujqrM6xuOK023hQ6167",
