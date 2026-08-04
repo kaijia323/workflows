@@ -24,7 +24,7 @@ import type { SessionEvent, Workspace } from '@workflows/shared'
 import { loadConfig, type WorkflowsStore } from '../config.js'
 import type { AgentDefinition } from './agentDefs.js'
 import { compileWriteMatcher, isWriteAllowed, type WriteMatcher } from './agentDefs.js'
-import { createPromptOnlyLoader } from './promptLoader.js'
+import { createPromptOnlyLoader, skillReadRoots, type SkillLoadContext } from './promptLoader.js'
 import type { FffIndexManager } from './fffTools.js'
 import { createFffFindTool, createFffGrepTool } from './fffTools.js'
 import { createAnySearchTools } from './anySearchTools.js'
@@ -97,17 +97,19 @@ export function buildSubAgentTools(options: {
   matcher: WriteMatcher | undefined
   /** anysearch API key 回调(env ANYSEARCH_API_KEY 优先逻辑在 anySearchTools 内部) */
   getAnySearchApiKey?: () => string | undefined
+  /** 工作区外只读放行根(见 promptLoader.skillReadRoots);缺省 [] 保持现有行为 */
+  extraAllowedRoots?: string[]
 }): { tools: ToolDefinition[]; activeNames: string[] } {
-  const { workspace, definition, fff, matcher, getAnySearchApiKey } = options
+  const { workspace, definition, fff, matcher, getAnySearchApiKey, extraAllowedRoots = [] } = options
   const builtinTools = createReadOnlyTools(workspace.path).filter(
     (tool) => tool.name !== 'grep' && tool.name !== 'find',
   )
-  const tools = builtinTools.map((tool) => guardPathTool(toToolDefinition(tool), workspace.path))
+  const tools = builtinTools.map((tool) => guardPathTool(toToolDefinition(tool), workspace.path, extraAllowedRoots))
   const finder = fff.get(workspace.id, workspace.path)
   if (finder) {
     tools.push(
-      guardPathTool(createFffFindTool(finder, workspace.path), workspace.path),
-      guardPathTool(createFffGrepTool(finder, workspace.path), workspace.path),
+      guardPathTool(createFffFindTool(finder, workspace.path), workspace.path, extraAllowedRoots),
+      guardPathTool(createFffGrepTool(finder, workspace.path), workspace.path, extraAllowedRoots),
     )
   }
   // 网络搜索:子代理联网(与主代理同一工厂;独立会话注册表,无去重问题)
@@ -330,12 +332,15 @@ export async function runSubAgent(options: RunSubAgentOptions): Promise<SubAgent
   const { store, runtime, fff, workspace, definition, run, callId, task, model, thinkingLevel, onEvent, signal } = options
   const name = definition.frontmatter.name
   const matcher = compileWriteMatcher(definition.frontmatter.write)
+  // 与主代理共用同一 SkillLoadContext 与放行根(主/子代理 skills 与只读边界一致)
+  const skillCtx: SkillLoadContext = { cwd: workspace.path, skillsDir: store.skillsDir }
   const { tools, activeNames } = buildSubAgentTools({
     workspace,
     definition,
     fff,
     matcher,
     getAnySearchApiKey: () => loadConfig(store).anySearchApiKey ?? undefined,
+    extraAllowedRoots: skillReadRoots(skillCtx),
   })
 
   // 子代理会话目录:每个调用一个 JSONL(模态窗按 callId 回看)
@@ -346,7 +351,7 @@ export async function runSubAgent(options: RunSubAgentOptions): Promise<SubAgent
   // skills:与主代理共用同一 SkillLoadContext(四来源),保证主/子代理 skills 一致
   const resourceLoader = createPromptOnlyLoader({
     systemPrompt: definition.body,
-    skills: { cwd: workspace.path, skillsDir: store.skillsDir },
+    skills: skillCtx,
   })
 
   const { session } = await createAgentSession({
