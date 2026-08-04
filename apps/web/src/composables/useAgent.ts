@@ -168,6 +168,7 @@ export function useAgent() {
 
   const activeWorkspace = computed(() => workspaces.value.find((w) => w.id === activeWorkspaceId.value) ?? null)
   const hasApiKey = computed(() => config.value?.hasApiKey ?? false)
+  const hasAnySearchApiKey = computed(() => config.value?.hasAnySearchApiKey ?? false)
 
   async function refreshConfig(): Promise<void> {
     config.value = await request<AgentConfig>('/api/agent/config')
@@ -189,6 +190,16 @@ export function useAgent() {
   /** 用户手动输入 API key,保存到 .workflows/config.json */
   async function saveApiKey(key: string): Promise<void> {
     await request('/api/agent/config/key', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ apiKey: key }),
+    })
+    await refreshConfig()
+  }
+
+  /** 用户手动输入 AnySearch API key,保存到 .workflows/config.json(空串=清空配置) */
+  async function saveAnySearchApiKey(key: string): Promise<void> {
+    await request('/api/agent/config/anysearch-key', {
       method: 'PUT',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ apiKey: key }),
@@ -687,10 +698,12 @@ export function useAgent() {
     subSessions,
     gateRequest,
     hasApiKey,
+    hasAnySearchApiKey,
     init,
     refreshConfig,
     refreshWorkspaces,
     saveApiKey,
+    saveAnySearchApiKey,
     addWorkspace,
     removeWorkspace,
     toggleReadOnly,

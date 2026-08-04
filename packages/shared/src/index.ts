@@ -64,6 +64,8 @@ export interface AgentModel {
 export interface AgentConfig {
   /** 是否已配置 DeepSeek API key */
   hasApiKey: boolean
+  /** 是否已配置 AnySearch API key(env ANYSEARCH_API_KEY 优先于配置文件) */
+  hasAnySearchApiKey: boolean
   /** 当前模型 id */
   model: string
   /** 当前思考级别 */

@@ -13,6 +13,11 @@ const saving = ref(false)
 const error = ref<string | null>(null)
 const saved = ref(false)
 
+const anyKeyInput = ref('')
+const anySaving = ref(false)
+const anyError = ref<string | null>(null)
+const anySaved = ref(false)
+
 async function handleSave() {
   const key = keyInput.value.trim()
   if (!key || saving.value) return
@@ -27,6 +32,22 @@ async function handleSave() {
     error.value = e instanceof Error ? e.message : String(e)
   } finally {
     saving.value = false
+  }
+}
+
+async function handleAnySave() {
+  if (anySaving.value) return
+  anySaving.value = true
+  anyError.value = null
+  anySaved.value = false
+  try {
+    await props.agent.saveAnySearchApiKey(anyKeyInput.value)
+    anyKeyInput.value = ''
+    anySaved.value = true
+  } catch (e) {
+    anyError.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    anySaving.value = false
   }
 }
 </script>
@@ -48,8 +69,11 @@ async function handleSave() {
         </button>
       </div>
 
-      <!-- API key -->
-      <p class="mt-5 text-[11px] leading-relaxed text-dim">
+      <!-- API key:DeepSeek -->
+      <p class="mt-5 font-mono text-[10px] tracking-wider text-faint">
+        DEEPSEEK · 对话模型
+      </p>
+      <p class="mt-2 text-[11px] leading-relaxed text-dim">
         输入 DeepSeek API key。key 仅保存在后端
         <code class="font-mono text-signal/90">{{ meta?.environment === 'production' ? '~/.workflows' : '.workflows' }}</code>
         配置文件中,不会写入任何 pi 全局配置,也不会返回给前端。
@@ -100,6 +124,65 @@ async function handleSave() {
       >
         已保存到后端配置
       </p>
+
+      <!-- AnySearch API key:独立 section -->
+      <div class="mt-6 border-t border-edge pt-4">
+        <p class="font-mono text-[10px] tracking-wider text-faint">
+          ANYSEARCH · 网络搜索
+        </p>
+        <p class="mt-2 text-[11px] leading-relaxed text-dim">
+          AnySearch 搜索 API key(可选)。不配置时工具以匿名方式调用(按 IP 限流并消耗每日免费额度)。
+          key 仅保存在后端配置文件中,不会返回给前端;环境变量
+          <code class="font-mono text-signal/90">ANYSEARCH_API_KEY</code>
+          优先于此处配置。输入为空保存将清空已配置的 key。
+        </p>
+
+        <form
+          class="mt-4"
+          @submit.prevent="handleAnySave"
+        >
+          <input
+            v-model="anyKeyInput"
+            type="password"
+            autocomplete="off"
+            spellcheck="false"
+            placeholder="anysearch-…"
+            class="w-full border border-edge bg-ink px-3 py-2 font-mono text-xs text-fg placeholder:text-faint focus:border-signal/60"
+          >
+          <div class="mt-3 flex items-center justify-between">
+            <span
+              v-if="agent.hasAnySearchApiKey.value"
+              class="flex items-center gap-1.5 font-mono text-[10px] text-ok"
+            >
+              <span class="size-1.5 rounded-full bg-ok" /> 已配置(可覆盖)
+            </span>
+            <span
+              v-else
+              class="font-mono text-[10px] text-faint"
+            >未配置(匿名可用)</span>
+            <button
+              type="submit"
+              class="border border-signal/50 bg-signal/10 px-4 py-1.5 font-display text-[11px] tracking-widest text-signal transition hover:bg-signal/20 disabled:opacity-40"
+              :disabled="anySaving"
+            >
+              {{ anySaving ? '保存中…' : '保存' }}
+            </button>
+          </div>
+        </form>
+
+        <p
+          v-if="anyError"
+          class="mt-3 font-mono text-[10px] text-err"
+        >
+          {{ anyError }}
+        </p>
+        <p
+          v-else-if="anySaved"
+          class="mt-3 font-mono text-[10px] text-ok"
+        >
+          已保存到后端配置
+        </p>
+      </div>
 
       <!-- 环境信息 -->
       <div

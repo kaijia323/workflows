@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { ChevronDown, Plus, X } from '@lucide/vue'
 import type { AgentStore } from '../composables/useAgent'
 
 /**
@@ -88,7 +89,7 @@ onBeforeUnmount(() => {
     >
       <span class="size-1.5 border border-faint/60 bg-faint/30" />
       {{ active ? formatTime(active.createdAt) : '新建会话' }}
-      <span class="text-faint">▾</span>
+      <ChevronDown class="size-3 text-faint" />
     </button>
 
     <div
@@ -130,7 +131,7 @@ onBeforeUnmount(() => {
             title="删除会话(历史文件一并移除)"
             @click="handleDelete(s.id)"
           >
-            ×
+            <X class="size-3.5" />
           </button>
         </div>
         <p
@@ -143,10 +144,11 @@ onBeforeUnmount(() => {
 
       <button
         type="button"
-        class="block w-full border-t border-edge px-3 py-2 text-left font-display text-[10px] tracking-widest text-signal transition hover:bg-signal/10"
+        class="flex w-full items-center gap-1.5 border-t border-edge px-3 py-2 text-left font-display text-[10px] tracking-widest text-signal transition hover:bg-signal/10"
         @click="handleNew"
       >
-        ＋ 新建会话
+        <Plus class="size-3" />
+        新建会话
       </button>
 
       <p

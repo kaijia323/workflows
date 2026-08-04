@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
+import { TriangleAlert } from '@lucide/vue'
 import { useAgent } from './composables/useAgent'
 import PipelineHeader from './components/PipelineHeader.vue'
 import WorkspaceRail from './components/WorkspaceRail.vue'
@@ -32,6 +33,7 @@ onMounted(async () => {
       :model="agent.config.value?.model ?? '—'"
       :streaming="agent.streaming.value"
       :connected="!agent.connectionError.value"
+      @open-settings="showSettings = true"
     />
 
     <div class="flex min-h-0 flex-1">
@@ -56,7 +58,8 @@ onMounted(async () => {
       v-if="agent.connectionError.value"
       class="shrink-0 border-t border-err/40 bg-err/10 px-5 py-1.5 font-mono text-[10px] text-err"
     >
-      ⚠ {{ agent.connectionError.value }}
+      <TriangleAlert class="mr-1 inline-block size-3.5 align-[-2px]" />
+      {{ agent.connectionError.value }}
     </div>
 
     <ApiKeyModal

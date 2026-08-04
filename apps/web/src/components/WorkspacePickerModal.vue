@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref } from 'vue'
+import { ChevronRight, X } from '@lucide/vue'
 import type { DirListing } from '@workflows/shared'
 import type { AgentStore } from '../composables/useAgent'
 
@@ -250,7 +251,7 @@ onMounted(() => {
         v-if="listing"
         class="flex items-center overflow-x-auto border-b border-edge px-4 py-2 font-mono text-[11px]"
       >
-        <span class="mr-2 shrink-0 text-signal">❯</span>
+        <ChevronRight class="mr-2 size-3 shrink-0 text-signal" />
         <template
           v-for="(seg, i) in segments"
           :key="seg.path"
@@ -346,7 +347,8 @@ onMounted(() => {
         v-if="error"
         class="border-t border-edge px-4 py-1.5 font-mono text-[10px] text-err"
       >
-        ✕ {{ error }}
+        <X class="mr-1 inline-block size-3 align-[-1px]" />
+        {{ error }}
       </p>
 
       <!-- 底部:当前路径 + 按键提示 + 确认 -->

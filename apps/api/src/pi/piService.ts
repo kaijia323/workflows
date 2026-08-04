@@ -16,6 +16,7 @@ import {
 } from '@earendil-works/pi-coding-agent'
 import { createWorkspaceBashHook, guardPathTool, toToolDefinition } from './workspaceGuard.js'
 import { createFffFindTool, createFffGrepTool, FffIndexManager } from './fffTools.js'
+import { createAnySearchTools } from './anySearchTools.js'
 import { getAgentDefinitions } from './agentDefs.js'
 import { createPromptOnlyLoader } from './promptLoader.js'
 import { runSubAgent, SubAgentError, type SubAgentResult } from './subAgent.js'
@@ -43,6 +44,7 @@ import {
   createStore,
   getActiveSession,
   getSession,
+  hasAnySearchApiKey,
   hasApiKey,
   listSessions,
   loadConfig,
@@ -52,6 +54,7 @@ import {
   removeWorkspaceSessions,
   sessionDirFor,
   sessionFileFor,
+  setAnySearchApiKey,
   setApiKey,
   updateSessionMeta,
   type WorkflowsStore,
@@ -132,6 +135,11 @@ export class PiAgentService {
     this.runtime.setRuntimeApiKey('deepseek', key.trim())
   }
 
+  /** 保存用户手动输入的 AnySearch API key(仅存 .workflows/config.json;工具执行时动态读取,无需运行时注入) */
+  setAnySearchApiKey(key: string): void {
+    setAnySearchApiKey(this.store, key)
+  }
+
   getConfig(): AgentConfig {
     const stored = loadConfig(this.store)
     const models = this.listModels()
@@ -141,6 +149,7 @@ export class PiAgentService {
     const thinkingLevel = stored.thinkingLevel ?? 'off'
     return {
       hasApiKey: hasApiKey(this.store),
+      hasAnySearchApiKey: hasAnySearchApiKey(this.store),
       model: model?.id ?? DEFAULT_MODEL,
       thinkingLevel: thinkingLevels.includes(thinkingLevel as ModelThinkingLevel) ? thinkingLevel : 'off',
       models: models.map((m) => ({
@@ -239,19 +248,26 @@ export class PiAgentService {
       : builtinTools
           .filter((tool) => tool.name === 'grep' || tool.name === 'find')
           .map((tool) => guardPathTool(toToolDefinition(tool), workspace.path))
+    // 网络搜索工具:无 path 参数,不需 guardPathTool;key 可匿名调用,env 优先,config 回退
+    // (getApiKey 动态读 config.json,保存后下次调用立即生效,无需重启会话)
+    const webTools = createAnySearchTools({
+      getApiKey: () => loadConfig(this.store).anySearchApiKey ?? undefined,
+    })
+    const webToolNames = webTools.map((tool) => tool.name)
     const guardedTools: ToolDefinition[] = workspace.readOnly
-      ? [...nonSearchTools, ...searchTools]
+      ? [...nonSearchTools, ...searchTools, ...webTools]
       : [
           ...nonSearchTools,
           ...searchTools,
+          ...webTools,
           toToolDefinition(createBashTool(workspace.path, { spawnHook: createWorkspaceBashHook(workspace.path) })),
         ]
     // 注意:SDK 的 allowedToolNames(tools 参数)会过滤 customTools 注册表,
-    // 所以 fff 工具必须显式列入;内置 grep/find 不列入即不开放
+    // 所以 fff 工具与 anysearch-search 必须显式列入;内置 grep/find 不列入即不开放
     const searchNames = searchTools.map((tool) => tool.name)
     const activeTools = workspace.readOnly
-      ? ['read', 'ls', ...searchNames]
-      : ['read', 'bash', 'edit', 'write', ...searchNames]
+      ? ['read', 'ls', ...searchNames, ...webToolNames]
+      : ['read', 'bash', 'edit', 'write', ...searchNames, ...webToolNames]
 
     // ---- 工作流编排:主代理 prompt(orchestrator.md)+ 子代理工具 ----
     const agentDefs = getAgentDefinitions(this.store)

@@ -36,6 +36,15 @@ export function registerAgentRoutes(app: Hono, store: WorkflowsStore, pi: PiAgen
     return c.json({ code: 0, message: '已保存', data: pi.getConfig() })
   })
 
+  // 用户手动输入 AnySearch API key,保存到 .workflows/config.json(空串=清空;key 明文不返回前端)
+  app.put('/api/agent/config/anysearch-key', async (c) => {
+    const body = await readJson<{ apiKey?: string }>(c)
+    const raw = body?.apiKey
+    const key = typeof raw === 'string' ? raw.trim() : ''
+    pi.setAnySearchApiKey(key)
+    return c.json({ code: 0, message: '已保存', data: pi.getConfig() })
+  })
+
   app.post('/api/agent/config/model', async (c) => {
     const body = await readJson<{ modelId?: string; workspaceId?: string }>(c)
     if (!body?.modelId) throw new HTTPException(400, { message: '缺少 modelId' })

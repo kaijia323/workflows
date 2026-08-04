@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { ArrowUpDown, X } from '@lucide/vue'
 import type { AgentStore, PlanBlock, UiMessage } from '../composables/useAgent'
 import { hasThinking, isThinkingBlockOpen, planBlocks } from '../composables/useAgent'
 import MessageBubble from './MessageBubble.vue'
@@ -101,7 +102,7 @@ function toggleTool(msg: UiMessage, callId: string): void {
           aria-label="关闭"
           @click="emit('close')"
         >
-          ✕
+          <X class="size-4" />
         </button>
       </div>
 
@@ -112,10 +113,11 @@ function toggleTool(msg: UiMessage, callId: string): void {
       >
         <button
           type="button"
-          class="border border-edge px-2 py-1 font-mono text-[9px] text-faint transition hover:text-fg"
+          class="flex items-center gap-1 border border-edge px-2 py-1 font-mono text-[9px] text-faint transition hover:text-fg"
           @click="toggleAllThinking"
         >
-          THINKING ⇅
+          THINKING
+          <ArrowUpDown class="size-3" />
         </button>
       </div>
 

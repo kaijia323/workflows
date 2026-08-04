@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { ArrowLeftRight, Pause } from '@lucide/vue'
 import type { AgentStore } from '../composables/useAgent'
 
 /**
@@ -151,11 +152,11 @@ function wireClass(status: DagNodeState['status']): string {
         :class="wireClass(nodes[1].status)"
       >
         <span
-          class="mx-auto grid size-3.5 place-items-center border text-[8px] leading-none"
+          class="mx-auto grid size-3.5 place-items-center border"
           :class="gatePending ? 'border-signal/80 bg-signal/15 text-signal' : 'border-edge text-faint'"
           title="人工闸门:计划需用户批准"
         >
-          ⏸
+          <Pause class="size-2.5" />
         </span>
       </span>
 
@@ -183,7 +184,7 @@ function wireClass(status: DagNodeState['status']): string {
         class="mx-1 flex h-px w-5 items-center"
         :class="wireClass(nodes[2].status)"
       >
-        <span class="mx-auto font-mono text-[8px] text-faint">⇄</span>
+        <span class="mx-auto text-faint"><ArrowLeftRight class="size-3" /></span>
       </span>
 
       <!-- 审查 -->
@@ -215,7 +216,7 @@ function wireClass(status: DagNodeState['status']): string {
       v-if="gatePending"
       class="mt-2.5 border border-signal/40 bg-signal/5 px-2.5 py-1.5 font-mono text-[9.5px] leading-relaxed text-signal"
     >
-      ⏸ 计划待批准<template v-if="planFile">
+      <Pause class="mr-1 inline-block size-3 align-[-2px]" /> 计划待批准<template v-if="planFile">
         :{{ planFile }}
       </template>
     </p>

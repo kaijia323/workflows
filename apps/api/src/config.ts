@@ -22,6 +22,8 @@ export function workflowsRoot(): string {
 
 interface StoredConfig {
   apiKey?: string
+  /** AnySearch 搜索 API key(可选;env ANYSEARCH_API_KEY 优先于配置文件) */
+  anySearchApiKey?: string
   model?: string
   thinkingLevel?: string
 }
@@ -98,6 +100,16 @@ export function setApiKey(store: WorkflowsStore, key: string): void {
 /** 是否已配置 key(不把 key 本身返回给前端) */
 export function hasApiKey(store: WorkflowsStore): boolean {
   return Boolean(loadConfig(store).apiKey)
+}
+
+/** 保存用户手动输入的 AnySearch API key 到 .workflows/config.json(空串=删除,由 saveConfig 处理) */
+export function setAnySearchApiKey(store: WorkflowsStore, key: string): void {
+  saveConfig(store, { anySearchApiKey: key.trim() })
+}
+
+/** 是否已配置 AnySearch key(不把 key 本身返回给前端) */
+export function hasAnySearchApiKey(store: WorkflowsStore): boolean {
+  return Boolean(loadConfig(store).anySearchApiKey)
 }
 
 /* ---------------- workspaces.json ---------------- */

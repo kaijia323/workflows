@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { nextTick, onMounted, ref, watch } from 'vue'
+import { ArrowUpDown, Pause } from '@lucide/vue'
 import type { AgentStore, PlanBlock, UiMessage } from '../composables/useAgent'
 import { findToolSegment, hasThinking, isThinkingBlockOpen, messageText, planBlocks } from '../composables/useAgent'
 import MessageBubble from './MessageBubble.vue'
@@ -219,7 +220,7 @@ async function rejectPlan(): Promise<void> {
         class="mb-2.5 border border-signal/50 bg-signal/5 px-3.5 py-3"
       >
         <div class="flex items-center gap-2">
-          <span class="grid size-4 place-items-center border border-signal/70 bg-signal/10 text-[9px] leading-none text-signal">⏸</span>
+          <span class="grid size-4 place-items-center border border-signal/70 bg-signal/10 text-signal"><Pause class="size-3" /></span>
           <span class="font-display text-[10px] tracking-[0.2em] text-signal">计划待批准</span>
           <span
             v-if="agent.gateRequest.value.planFile"
@@ -352,10 +353,11 @@ async function rejectPlan(): Promise<void> {
         >
           <button
             type="button"
-            class="border border-edge px-2 py-1 font-mono text-[9px] text-faint transition hover:text-fg"
+            class="flex items-center gap-1 border border-edge px-2 py-1 font-mono text-[9px] text-faint transition hover:text-fg"
             @click="toggleAllThinking"
           >
-            THINKING ⇅
+            THINKING
+            <ArrowUpDown class="size-3" />
           </button>
         </div>
       </div>

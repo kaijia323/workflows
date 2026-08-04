@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { ChevronDown, ChevronRight, TriangleAlert } from '@lucide/vue'
 import type { PlanBlock, UiMessage } from '../composables/useAgent'
 import { isThinkingBlockOpen, messageText, planBlocks, toolLabel } from '../composables/useAgent'
 import { renderMarkdown } from '../utils/markdown'
@@ -94,7 +95,7 @@ function formatTokens(n: number | undefined): string {
               <span
                 class="inline-block w-3 text-center transition-transform duration-200"
                 :class="isThinkingBlockOpen(message, plan, block.key) ? 'rotate-90' : ''"
-              >▸</span>
+              ><ChevronRight class="size-3" /></span>
               <span class="text-wire/80">THINKING</span>
               <span class="ml-auto font-mono text-[9px] text-faint">{{ block.text.length }} chars</span>
             </button>
@@ -133,10 +134,18 @@ function formatTokens(n: number | undefined): string {
               <span class="font-display text-[10px] tracking-widest text-dim">{{ toolLabel(block.tool.name) }}</span>
               <span class="truncate font-mono text-[10px] text-faint">{{ block.tool.name }}</span>
               <span
-                class="ml-auto shrink-0 font-mono text-[9px] tracking-wider"
+                class="ml-auto flex shrink-0 items-center gap-1 font-mono text-[9px] tracking-wider"
                 :class="block.tool.isError ? 'text-err/80' : 'text-faint'"
               >
-                {{ block.tool.collapsed ? '▸ 详情' : '▾ 收起' }}
+                <ChevronRight
+                  v-if="block.tool.collapsed"
+                  class="size-3"
+                />
+                <ChevronDown
+                  v-else
+                  class="size-3"
+                />
+                {{ block.tool.collapsed ? '详情' : '收起' }}
               </span>
             </button>
             <pre
@@ -162,7 +171,8 @@ function formatTokens(n: number | undefined): string {
         class="border-t border-err/30 px-3.5 py-2"
       >
         <p class="font-mono text-[11px] text-err">
-          ⚠ {{ message.errorText }}
+          <TriangleAlert class="mr-1 inline-block size-3.5 align-[-2px]" />
+          {{ message.errorText }}
         </p>
       </div>
 

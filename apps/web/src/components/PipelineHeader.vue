@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { Settings } from '@lucide/vue'
 import type { Workspace } from '@workflows/shared'
 
 /**
@@ -12,6 +13,7 @@ const props = defineProps<{
   streaming: boolean
   connected: boolean
 }>()
+const emit = defineEmits<{ 'open-settings': [] }>()
 
 const sourceDetail = computed(() => props.workspace?.name ?? '未选择')
 const sourceActive = computed(() => Boolean(props.workspace))
@@ -99,6 +101,14 @@ const processingDetail = computed(() => (props.streaming ? '运行中' : props.m
 
     <!-- 状态灯 -->
     <div class="flex w-60 shrink-0 items-center justify-end gap-2">
+      <button
+        type="button"
+        title="设置"
+        class="grid size-6 place-items-center border border-edge font-mono text-[11px] text-dim transition hover:border-signal/60 hover:text-signal"
+        @click="emit('open-settings')"
+      >
+        <Settings class="size-4" />
+      </button>
       <span class="font-mono text-[10px] tracking-wider text-faint">LINK</span>
       <span
         class="flex items-center gap-1.5 rounded-full border px-2 py-0.5 font-mono text-[10px]"

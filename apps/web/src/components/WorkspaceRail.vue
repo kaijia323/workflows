@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { Plus } from '@lucide/vue'
 import type { AgentStore } from '../composables/useAgent'
 
 /**
@@ -107,10 +108,11 @@ function formatDate(ts: number): string {
     <div class="shrink-0 border-t border-edge p-3">
       <button
         type="button"
-        class="w-full border border-signal/50 bg-signal/10 px-2.5 py-1.5 font-display text-[11px] tracking-widest text-signal transition hover:bg-signal/20"
+        class="flex w-full items-center justify-center gap-1.5 border border-signal/50 bg-signal/10 px-2.5 py-1.5 font-display text-[11px] tracking-widest text-signal transition hover:bg-signal/20"
         @click="emit('openPicker')"
       >
-        + 添加工作区
+        <Plus class="size-3.5" />
+        添加工作区
       </button>
       <p class="mt-1.5 font-mono text-[9px] leading-relaxed text-faint">
         选择真实存在的目录;agent 上下文限定于此
