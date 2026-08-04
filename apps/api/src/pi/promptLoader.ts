@@ -113,6 +113,39 @@ function isUnder(target: string, root: string): boolean {
   return a.startsWith(prefix)
 }
 
+/**
+ * 工作区外 skills 的只读放行根(单一事实源,主/子代理共用)。
+ * 与 loadWorkspaceSkills 四来源对应:
+ * - (a) <agentDir>/skills:PI_CODING_AGENT_DIR 重定向优先,否则 <homeDir>/.pi/agent/skills
+ * - (c) ctx.skillsDir:仅当不在 ctx.cwd 内时加入(prod 场景;dev 在工作区内无需放行)
+ * - (d) <homeDir>/.agents/skills
+ * 来源 b(<cwd>/.pi/skills)恒在工作区内,不加入。
+ * 返回去重后的绝对路径列表(不含 ~ 形式);主代理与子代理必须使用同一结果。
+ * 放行面:仅 read/ls/fff-find/fff-grep 等只读工具的 path 参数校验(workspaceGuard.extraAllowedRoots);
+ * bash/write/edit 一律不放行。
+ */
+export function skillReadRoots(ctx: SkillLoadContext): string[] {
+  const roots: string[] = []
+  const agentDir = process.env.PI_CODING_AGENT_DIR
+  roots.push(
+    agentDir ? path.resolve(agentDir, 'skills') : path.resolve(homeDirOf(ctx), '.pi', 'agent', 'skills'),
+  )
+  roots.push(path.resolve(homeDirOf(ctx), '.agents', 'skills'))
+  const skillsDir = path.resolve(ctx.skillsDir)
+  if (!isUnder(skillsDir, path.resolve(ctx.cwd))) roots.push(skillsDir)
+  // 去重 + 过滤工作区内冗余根(win32/darwin 折叠大小写,与 isUnder 一致)
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const r of roots) {
+    if (isUnder(r, path.resolve(ctx.cwd))) continue
+    const key = process.platform === 'win32' || process.platform === 'darwin' ? r.toLowerCase() : r
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push(r)
+  }
+  return out
+}
+
 export interface PromptOnlyLoaderOptions {
   systemPrompt?: string
   appendSystemPrompt?: string[]
