@@ -76,6 +76,27 @@ export interface AgentConfig {
   thinkingLevels: string[]
 }
 
+/** skill 来源分类(前端下拉展示) */
+export type SkillSource = 'pi-agent' | 'pi-project' | 'workspace' | 'global-agents' | 'path'
+
+/** 前端可用的 skill 摘要(供输入框 / 搜索调用) */
+export interface SkillInfo {
+  /** skill 名(/skill:<name> 调用时的名字) */
+  name: string
+  /** 描述(frontmatter description 必填,缺失不加载) */
+  description: string
+  /** skill 文件绝对路径(SKILL.md 或根目录散落 .md) */
+  filePath: string
+  /** skill 所在目录绝对路径 */
+  baseDir: string
+  /** 来源分类:pi-agent(~/.pi/agent/skills)/ pi-project(<cwd>/.pi/skills)/ workspace(.workflows/skills)/ global-agents(~/.agents/skills)/ path(其他) */
+  source: SkillSource
+  /** 来源目录绝对路径(= baseDir,前端展示用) */
+  sourcePath: string
+  /** true 时不注入 system prompt,只能 /skill:name 显式调用 */
+  disableModelInvocation: boolean
+}
+
 /**
  * 目录浏览条目(仅目录;添加工作区时供前端浏览文件系统)
  */
