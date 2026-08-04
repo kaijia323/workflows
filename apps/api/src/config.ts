@@ -26,6 +26,8 @@ interface StoredConfig {
   anySearchApiKey?: string
   model?: string
   thinkingLevel?: string
+  /** planner 重做上限(可选):缺省/0/负数 = 无上限;≥1 的数字 = 同一 run 内 planner 最多调用 N 次 */
+  plannerMaxRetries?: number
 }
 
 export interface WorkflowsStore {

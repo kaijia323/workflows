@@ -21,12 +21,14 @@ import {
   type ToolDefinition,
 } from '@earendil-works/pi-coding-agent'
 import type { SessionEvent, Workspace } from '@workflows/shared'
-import type { WorkflowsStore } from '../config.js'
+import { loadConfig, type WorkflowsStore } from '../config.js'
 import type { AgentDefinition } from './agentDefs.js'
 import { compileWriteMatcher, isWriteAllowed, type WriteMatcher } from './agentDefs.js'
 import { createPromptOnlyLoader } from './promptLoader.js'
 import type { FffIndexManager } from './fffTools.js'
 import { createFffFindTool, createFffGrepTool } from './fffTools.js'
+import { createAnySearchTools } from './anySearchTools.js'
+import { createDesignTools } from './designTools.js'
 import type { RunFile } from './runManager.js'
 import { guardPathTool, toToolDefinition, createWorkspaceBashHook } from './workspaceGuard.js'
 
@@ -94,8 +96,10 @@ export function buildSubAgentTools(options: {
   definition: AgentDefinition
   fff: FffIndexManager
   matcher: WriteMatcher | undefined
+  /** anysearch API key 回调(env ANYSEARCH_API_KEY 优先逻辑在 anySearchTools 内部) */
+  getAnySearchApiKey?: () => string | undefined
 }): { tools: ToolDefinition[]; activeNames: string[] } {
-  const { workspace, definition, fff, matcher } = options
+  const { workspace, definition, fff, matcher, getAnySearchApiKey } = options
   const builtinTools = createReadOnlyTools(workspace.path).filter(
     (tool) => tool.name !== 'grep' && tool.name !== 'find',
   )
@@ -107,7 +111,17 @@ export function buildSubAgentTools(options: {
       guardPathTool(createFffGrepTool(finder, workspace.path), workspace.path),
     )
   }
-  const activeNames = ['read', 'ls', ...tools.filter((t) => t.name.startsWith('fff-')).map((t) => t.name)]
+  // 网络搜索:子代理联网(与主代理同一工厂;独立会话注册表,无去重问题)
+  tools.push(...createAnySearchTools({ getApiKey: getAnySearchApiKey }))
+  // 内置 design 工具:读/下载设计(与 wait_for_approval 同类,注册到所有代理;download 有独立安全护栏)
+  tools.push(...createDesignTools({ workspace }))
+  const activeNames = [
+    'read',
+    'ls',
+    ...tools.filter((t) => t.name.startsWith('fff-')).map((t) => t.name),
+    'anysearch-search',
+    'design',
+  ]
 
   const writePatterns = definition.frontmatter.write
   // 只读工作区:executor 的全量写(`**`)降级为只读;产物白名单写保留
@@ -320,7 +334,13 @@ export async function runSubAgent(options: RunSubAgentOptions): Promise<SubAgent
   const { store, runtime, fff, workspace, definition, run, callId, task, model, thinkingLevel, onEvent, signal } = options
   const name = definition.frontmatter.name
   const matcher = compileWriteMatcher(definition.frontmatter.write)
-  const { tools, activeNames } = buildSubAgentTools({ workspace, definition, fff, matcher })
+  const { tools, activeNames } = buildSubAgentTools({
+    workspace,
+    definition,
+    fff,
+    matcher,
+    getAnySearchApiKey: () => loadConfig(store).anySearchApiKey ?? undefined,
+  })
 
   // 子代理会话目录:每个调用一个 JSONL(模态窗按 callId 回看)
   const sessionDir = path.join(store.agentDir, 'sessions', workspace.id, 'sub', run.runId)

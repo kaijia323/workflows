@@ -17,6 +17,7 @@ import {
 import { createWorkspaceBashHook, guardPathTool, toToolDefinition } from './workspaceGuard.js'
 import { createFffFindTool, createFffGrepTool, FffIndexManager } from './fffTools.js'
 import { createAnySearchTools } from './anySearchTools.js'
+import { createDesignTools } from './designTools.js'
 import { getAgentDefinitions } from './agentDefs.js'
 import { createPromptOnlyLoader } from './promptLoader.js'
 import { runSubAgent, SubAgentError, type SubAgentResult } from './subAgent.js'
@@ -254,20 +255,24 @@ export class PiAgentService {
       getApiKey: () => loadConfig(this.store).anySearchApiKey ?? undefined,
     })
     const webToolNames = webTools.map((tool) => tool.name)
+    // 内置 design 工具:读/下载设计库文件(与 wait_for_approval 同类基础设施工具;download 有独立安全护栏)
+    const designTools = createDesignTools({ workspace })
+    const designToolNames = designTools.map((tool) => tool.name)
     const guardedTools: ToolDefinition[] = workspace.readOnly
-      ? [...nonSearchTools, ...searchTools, ...webTools]
+      ? [...nonSearchTools, ...searchTools, ...webTools, ...designTools]
       : [
           ...nonSearchTools,
           ...searchTools,
           ...webTools,
+          ...designTools,
           toToolDefinition(createBashTool(workspace.path, { spawnHook: createWorkspaceBashHook(workspace.path) })),
         ]
     // 注意:SDK 的 allowedToolNames(tools 参数)会过滤 customTools 注册表,
     // 所以 fff 工具与 anysearch-search 必须显式列入;内置 grep/find 不列入即不开放
     const searchNames = searchTools.map((tool) => tool.name)
     const activeTools = workspace.readOnly
-      ? ['read', 'ls', ...searchNames, ...webToolNames]
-      : ['read', 'bash', 'edit', 'write', ...searchNames, ...webToolNames]
+      ? ['read', 'ls', ...searchNames, ...webToolNames, ...designToolNames]
+      : ['read', 'bash', 'edit', 'write', ...searchNames, ...webToolNames, ...designToolNames]
 
     // ---- 工作流编排:主代理 prompt(orchestrator.md)+ 子代理工具 ----
     const agentDefs = getAgentDefinitions(this.store)
@@ -389,14 +394,16 @@ export class PiAgentService {
         handle.turnSubAgentCalled = true
         const run = this.ensureRun(handle)
         // 循环上限兜底(代码级,不依赖模型自觉):
-        // 审查⇄执行最多 3 轮;全流程回到 planner 最多 2 次,超限强制收尾
+        // 审查⇄执行最多 3 轮;planner 重做上限可配置(plannerMaxRetries,缺省 = 无上限),超限强制收尾
+        const cfg = loadConfig(this.store)
         const reviewerCalls = run.agents.filter((a) => a.agent === 'reviewer').length
         const plannerCalls = run.agents.filter((a) => a.agent === 'planner').length
         if (name === 'executor' && reviewerCalls >= 3) {
           throw new Error('执行⇄审查循环已达 3 轮上限。立即收尾:总结仍未解决的问题清单,向用户交付,不要再调用任何子代理。')
         }
-        if (name === 'planner' && plannerCalls >= 2) {
-          throw new Error('重做计划已达 2 次上限。立即收尾:总结仍未解决的问题清单,向用户交付,不要再调用任何子代理。')
+        const plannerMaxRetries = cfg.plannerMaxRetries
+        if (name === 'planner' && typeof plannerMaxRetries === 'number' && plannerMaxRetries >= 1 && plannerCalls >= plannerMaxRetries) {
+          throw new Error(`重做计划已达 ${plannerMaxRetries} 次上限。立即收尾:总结仍未解决的问题清单,向用户交付,不要再调用任何子代理。`)
         }
         // 子代理运行中 run 进入执行态(闸门续跑翻回 executing;done 为终态,永不回退)
         if (run.status === 'awaiting_approval') run.status = 'executing'

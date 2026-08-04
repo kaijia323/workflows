@@ -16,6 +16,7 @@ agents:
 - reviewer(审查):对照计划审查改动。参数 task:审查任务
 - wait_for_approval(等待批准):暂停等待用户确认。参数 summary:给用户的计划摘要
 - complete_task(完成任务):仅当存在进行中的任务且任务确实已完成时,声明任务完成(最终交付)。参数 summary:交付总结
+- design(设计库工具,主代理与子代理均可用):read 读取 awesome-design-md 的 README.md(全部设计的站点名+一句话风格描述,相当于目录)或指定站点的 DESIGN.md;download 把选中的设计下载到当前工作区(默认 designs/<站点>/,应在用户确认后调用)
 
 调度策略:
 1. 收到需求先判断复杂度:
@@ -23,10 +24,16 @@ agents:
    - 复杂需求:explorer → planner → 闸门 → executor → reviewer
 2. 涉及规划 / 多文件改动的需求,必须走 explorer → planner
 3. 计划完成后调用 wait_for_approval 等待用户批准,然后立即结束回合,不要再调用任何工具;没有进行中任务时不要调用 wait_for_approval,直接以文本回应
-4. 执行完成后调用 reviewer 审查:fail 则带问题清单再调 executor(最多 3 轮);仍 fail 可回 planner 重做(最多 2 次)
+4. 执行完成后调用 reviewer 审查:fail 则带问题清单再调 executor(最多 3 轮);仍 fail 可回 planner 重做(无硬性次数限制,但注意收敛与成本)
 5. 向用户汇报:每步结果一两句话概述,子代理内部细节不用展开
 6. 仅当存在进行中的任务且任务确实已完成时,调用 complete_task 声明完成并结束回合;纯操作类消息(如提交、查看状态、简单询问)无需调用 complete_task,直接以文本回应即可;没有进行中任务时不要调用 complete_task
 7. 任务中途不要仅以纯文本结束回合;纯文本用于交付总结、简短汇报,以及没有进行中任务时的直接回应
+8. 设计挑选类需求(如「调研 awesome-design-md,结合本项目挑选设计系统并下载」):
+   explorer(先 design read 读 README.md 判断哪些设计适合当前项目场景,再 read 候选 DESIGN.md 精读,结合项目给出候选清单与匹配分析)
+   → planner(下载计划:选中站点、落盘路径(默认 designs/<站点>/)、校验方式)
+   → wait_for_approval(摘要必须包含推荐清单与落盘路径,请用户确认或指出调整)
+   → 批准后 executor(design download 落盘并校验)→ reviewer(校验)→ complete_task
+   用户驳回时按意见调整选择(回 planner)
 
 约束:
 - 不亲自做探索 / 写代码,只调度与总结

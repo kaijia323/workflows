@@ -84,6 +84,20 @@ write: [...]             # 可写目标;省略 = 纯只读;** = 全量写
 
 实现:基于现有 `guardPathTool` 扩展「白名单可写」模式(只读工具集 + 限定可写文件的 write 工具);executor 复用现有读写工作区完整工具集。搜索工具只有 fff(内置 grep/find 已废弃,不开放)。
 
+**子代理工具集补充(与实现对齐)**:除只读基础工具与 write 白名单外,所有子代理(explorer / planner / executor / reviewer)均注册:
+
+- `anysearch-search`(网络搜索):与主代理同一工厂(`createAnySearchTools`),所有子代理可联网调研外部信息(50KB 截断)
+- 内置 `design` 工具(读/下载 awesome-design-md 设计):注册到主代理与所有子代理,与 `wait_for_approval` 同类基础设施工具;`download` 不受逐代理 write 白名单约束,但受护栏保护:工作区边界(isPathWithinWorkspace)+ 只读拦截 + 固定仓库路径集合(无任意 URL)+ overwrite 默认 false + 单文件 5MB 上限
+
+注册点:`piService.openSession`(主代理,只读/读写两分支的 guardedTools 与 activeTools 白名单均含 design)与 `subAgent.buildSubAgentTools`(子代理)。
+
+### 4.1 外部抓取约定(design 工具)
+
+- design 工具**不调 GitHub API**,一律 `jsDelivr CDN 优先`(`https://cdn.jsdelivr.net/gh/{owner}/{repo}@{branch}/{path}`)→ `raw.githubusercontent.com` 兜底 → `master` 分支兜底;单次尝试 20s 超时、首次 2xx 即停
+- `GITHUB_TOKEN` 保留为 env 配置项但**当前不读取**(仅未来接 GitHub API 时启用);全程无 api.github.com 请求,从源头规避 60 次/小时限流
+- `read` 50KB 字节截断(内容进上下文,含来源头)/ `download` 5MB 硬上限(内容不进上下文,直接落盘工作区,默认 `designs/<站点>/`)
+- jsDelivr 有分钟级缓存延迟(设计库内容更新不频繁,可接受);需要最新内容时 raw 兜底即为最新
+
 ## 5. 数据模型
 
 ### 5.1 run:一次需求处理

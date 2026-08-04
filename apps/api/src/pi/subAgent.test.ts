@@ -12,7 +12,8 @@ import type { AgentSessionEvent } from '@earendil-works/pi-coding-agent'
 import type { Workspace } from '@workflows/shared'
 import type { AgentDefinition } from './agentDefs.js'
 import type { RunFile } from './runManager.js'
-import { detectArtifact, nextArtifactName, toSubEvents } from './subAgent.js'
+import type { FffIndexManager } from './fffTools.js'
+import { buildSubAgentTools, detectArtifact, nextArtifactName, toSubEvents } from './subAgent.js'
 
 function msgEvent(role: string, timestamp = 1): AgentSessionEvent {
   return {
@@ -54,6 +55,73 @@ function makeWorkspace(): { dir: string; workspace: Workspace } {
   const workspace = { id: 'w1', path: dir } as unknown as Workspace
   return { dir, workspace }
 }
+
+describe('buildSubAgentTools 子代理工具集(anysearch-search / design)', () => {
+  const ROLES = ['explorer', 'planner', 'executor', 'reviewer']
+  /** fff 索引缺失 stub(与无索引工作区等价) */
+  const stubFff = { get: () => undefined } as unknown as FffIndexManager
+
+  it.each(ROLES)('%s:tools 与 activeNames 均含 anysearch-search(恰一次)', (role) => {
+    const { dir, workspace } = makeWorkspace()
+    try {
+      const { tools, activeNames } = buildSubAgentTools({
+        workspace,
+        definition: makeDef(role),
+        fff: stubFff,
+        matcher: undefined,
+      })
+      expect(activeNames.filter((n) => n === 'anysearch-search')).toHaveLength(1)
+      expect(tools.filter((t) => t.name === 'anysearch-search')).toHaveLength(1)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it.each(ROLES)('%s:tools 与 activeNames 均含 design(恰一次;download 不受 write 白名单影响)', (role) => {
+    const { dir, workspace } = makeWorkspace()
+    try {
+      const { tools, activeNames } = buildSubAgentTools({
+        workspace,
+        definition: makeDef(role),
+        fff: stubFff,
+        matcher: undefined,
+      })
+      expect(activeNames.filter((n) => n === 'design')).toHaveLength(1)
+      expect(tools.filter((t) => t.name === 'design')).toHaveLength(1)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('executor(全量写)与 explorer(纯只读)的工具集差异仅限写工具,联网/设计工具一致', () => {
+    const { dir, workspace } = makeWorkspace()
+    try {
+      const explorer = buildSubAgentTools({
+        workspace,
+        definition: makeDef('explorer'),
+        fff: stubFff,
+        matcher: undefined,
+      })
+      const executor = buildSubAgentTools({
+        workspace,
+        definition: makeDef('executor', ['**']),
+        fff: stubFff,
+        matcher: undefined,
+      })
+      for (const name of ['anysearch-search', 'design', 'read', 'ls']) {
+        expect(explorer.tools.some((t) => t.name === name)).toBe(true)
+        expect(executor.tools.some((t) => t.name === name)).toBe(true)
+      }
+      // executor 额外获得写工具;explorer 无 bash/edit/write
+      for (const name of ['bash', 'edit', 'write']) {
+        expect(executor.activeNames).toContain(name)
+        expect(explorer.activeNames).not.toContain(name)
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+})
 
 describe('toSubEvents 事件镜像', () => {
   it('toolResult 消息不镜像为 sub_message_start(回归:模态窗空消息光标)', () => {
