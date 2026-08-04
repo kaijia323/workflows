@@ -28,7 +28,6 @@ import { createPromptOnlyLoader } from './promptLoader.js'
 import type { FffIndexManager } from './fffTools.js'
 import { createFffFindTool, createFffGrepTool } from './fffTools.js'
 import { createAnySearchTools } from './anySearchTools.js'
-import { createDesignTools } from './designTools.js'
 import type { RunFile } from './runManager.js'
 import { guardPathTool, toToolDefinition, createWorkspaceBashHook } from './workspaceGuard.js'
 
@@ -113,14 +112,11 @@ export function buildSubAgentTools(options: {
   }
   // 网络搜索:子代理联网(与主代理同一工厂;独立会话注册表,无去重问题)
   tools.push(...createAnySearchTools({ getApiKey: getAnySearchApiKey }))
-  // 内置 design 工具:读/下载设计(与 wait_for_approval 同类,注册到所有代理;download 有独立安全护栏)
-  tools.push(...createDesignTools({ workspace }))
   const activeNames = [
     'read',
     'ls',
     ...tools.filter((t) => t.name.startsWith('fff-')).map((t) => t.name),
     'anysearch-search',
-    'design',
   ]
 
   const writePatterns = definition.frontmatter.write

@@ -56,7 +56,7 @@ function makeWorkspace(): { dir: string; workspace: Workspace } {
   return { dir, workspace }
 }
 
-describe('buildSubAgentTools 子代理工具集(anysearch-search / design)', () => {
+describe('buildSubAgentTools 子代理工具集(anysearch-search)', () => {
   const ROLES = ['explorer', 'planner', 'executor', 'reviewer']
   /** fff 索引缺失 stub(与无索引工作区等价) */
   const stubFff = { get: () => undefined } as unknown as FffIndexManager
@@ -77,23 +77,7 @@ describe('buildSubAgentTools 子代理工具集(anysearch-search / design)', () 
     }
   })
 
-  it.each(ROLES)('%s:tools 与 activeNames 均含 design(恰一次;download 不受 write 白名单影响)', (role) => {
-    const { dir, workspace } = makeWorkspace()
-    try {
-      const { tools, activeNames } = buildSubAgentTools({
-        workspace,
-        definition: makeDef(role),
-        fff: stubFff,
-        matcher: undefined,
-      })
-      expect(activeNames.filter((n) => n === 'design')).toHaveLength(1)
-      expect(tools.filter((t) => t.name === 'design')).toHaveLength(1)
-    } finally {
-      rmSync(dir, { recursive: true, force: true })
-    }
-  })
-
-  it('executor(全量写)与 explorer(纯只读)的工具集差异仅限写工具,联网/设计工具一致', () => {
+  it('executor(全量写)与 explorer(纯只读)的工具集差异仅限写工具,联网工具一致', () => {
     const { dir, workspace } = makeWorkspace()
     try {
       const explorer = buildSubAgentTools({
@@ -108,7 +92,7 @@ describe('buildSubAgentTools 子代理工具集(anysearch-search / design)', () 
         fff: stubFff,
         matcher: undefined,
       })
-      for (const name of ['anysearch-search', 'design', 'read', 'ls']) {
+      for (const name of ['anysearch-search', 'read', 'ls']) {
         expect(explorer.tools.some((t) => t.name === name)).toBe(true)
         expect(executor.tools.some((t) => t.name === name)).toBe(true)
       }

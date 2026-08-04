@@ -17,7 +17,6 @@ import {
 import { createWorkspaceBashHook, guardPathTool, toToolDefinition } from './workspaceGuard.js'
 import { createFffFindTool, createFffGrepTool, FffIndexManager } from './fffTools.js'
 import { createAnySearchTools } from './anySearchTools.js'
-import { createDesignTools } from './designTools.js'
 import { getAgentDefinitions } from './agentDefs.js'
 import { createPromptOnlyLoader } from './promptLoader.js'
 import { runSubAgent, SubAgentError, type SubAgentResult } from './subAgent.js'
@@ -255,24 +254,20 @@ export class PiAgentService {
       getApiKey: () => loadConfig(this.store).anySearchApiKey ?? undefined,
     })
     const webToolNames = webTools.map((tool) => tool.name)
-    // 内置 design 工具:读/下载设计库文件(与 wait_for_approval 同类基础设施工具;download 有独立安全护栏)
-    const designTools = createDesignTools({ workspace })
-    const designToolNames = designTools.map((tool) => tool.name)
     const guardedTools: ToolDefinition[] = workspace.readOnly
-      ? [...nonSearchTools, ...searchTools, ...webTools, ...designTools]
+      ? [...nonSearchTools, ...searchTools, ...webTools]
       : [
           ...nonSearchTools,
           ...searchTools,
           ...webTools,
-          ...designTools,
           toToolDefinition(createBashTool(workspace.path, { spawnHook: createWorkspaceBashHook(workspace.path) })),
         ]
     // 注意:SDK 的 allowedToolNames(tools 参数)会过滤 customTools 注册表,
     // 所以 fff 工具与 anysearch-search 必须显式列入;内置 grep/find 不列入即不开放
     const searchNames = searchTools.map((tool) => tool.name)
     const activeTools = workspace.readOnly
-      ? ['read', 'ls', ...searchNames, ...webToolNames, ...designToolNames]
-      : ['read', 'bash', 'edit', 'write', ...searchNames, ...webToolNames, ...designToolNames]
+      ? ['read', 'ls', ...searchNames, ...webToolNames]
+      : ['read', 'bash', 'edit', 'write', ...searchNames, ...webToolNames]
 
     // ---- 工作流编排:主代理 prompt(orchestrator.md)+ 子代理工具 ----
     const agentDefs = getAgentDefinitions(this.store)
