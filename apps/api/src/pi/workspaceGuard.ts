@@ -8,6 +8,12 @@
  *    嵌套命令替换,任何解析到工作区外的路径一律拒绝(返回带定位的错误,模型可自我纠正)
  * 2. read/write/edit/grep/find/ls → 包装 ToolDefinition,execute 前校验 path 参数
  *
+ * 可选只读放行根(extraAllowedRoots,缺省空、向后兼容):
+ * 工作区外的 skills 目录(~/.pi/agent/skills、~/.agents/skills、prod 下 ~/.workflows/skills)
+ * 对 read/ls/fff-find/fff-grep 等只读工具的 path 参数校验放行;bash/write/edit 一律不放行。
+ * 放行根是子树语义(仅 skills 根之下),兄弟路径(~/.workflows/config.json 等)仍拦截。
+ * 放行根由 promptLoader.skillReadRoots(ctx) 提供(主/子代理共用单一事实源)。
+ *
  * 设计取舍(护栏定位,非安全边界):
  * - 解释器 -c/-e 字符串(python3 -c "...")内部的路径不审计——静态分析无法可靠
  *   区分代码与路径,这是有意取舍
@@ -112,17 +118,28 @@ function isTempPath(resolved: string): boolean {
 
 /**
  * 统一路径判定(bash 层与工具层共用):
- * 设备白名单 → 临时目录 → 工作区内 → 否则拒绝。
- * candidate 为 bash/工具参数语境下的原始路径。
+ * 设备白名单 → 临时目录 → 工作区内 → 任一放行根内 → 否则拒绝。
+ * candidate 为 bash/工具参数语境下的原始路径;extraAllowedRoots 缺省空(向后兼容)。
+ * 注意:bash 层(auditBashCommand/createWorkspaceBashHook)不接收放行根,
+ * 只读放行仅对 read/ls/fff 等工具的参数校验生效。
  */
-export function isAllowedTargetPath(candidate: string, workspacePath: string): boolean {
+export function isAllowedTargetPath(
+  candidate: string,
+  workspacePath: string,
+  extraAllowedRoots: string[] = [],
+): boolean {
   if (DEVICE_WHITELIST.has(candidate)) return true
   if (candidate === '/dev/fd' || candidate.startsWith('/dev/fd/')) return true
   const normalized = normalizeBashPath(candidate)
   if (normalized === null) return false
   const resolved = path.resolve(workspacePath, normalized)
   if (isTempPath(resolved)) return true
-  return isPathWithinWorkspace(workspacePath, resolved)
+  if (isPathWithinWorkspace(workspacePath, resolved)) return true
+  // 任一放行根内(子树语义;root 防御性 resolve;win32 大小写折叠由 isPathWithinWorkspace 内置)
+  for (const root of extraAllowedRoots) {
+    if (isPathWithinWorkspace(path.resolve(root), resolved)) return true
+  }
+  return false
 }
 
 /**
@@ -510,12 +527,16 @@ export function toToolDefinition<P = unknown, D = unknown>(tool: AgentToolLike<P
  * 包装工具定义:execute 前校验 path 参数(相对路径基于工作区解析,与 pi 工具语义一致)。
  * 覆盖 read/write/edit/grep/find/ls;返回原定义(原地修改 execute)。
  */
-export function guardPathTool<T extends ToolDefinition>(definition: T, workspacePath: string): T {
+export function guardPathTool<T extends ToolDefinition>(
+  definition: T,
+  workspacePath: string,
+  extraAllowedRoots: string[] = [],
+): T {
   const originalExecute = definition.execute
   definition.execute = async (toolCallId, params, signal, onUpdate, ctx) => {
     const rawPath = (params as { path?: unknown }).path
     if (typeof rawPath === 'string' && rawPath !== '') {
-      if (!isAllowedTargetPath(rawPath, workspacePath)) {
+      if (!isAllowedTargetPath(rawPath, workspacePath, extraAllowedRoots)) {
         throw new Error(
           `工作区边界拦截:${definition.name} 尝试访问工作区之外的路径「${rawPath}」` +
             `(解析为 ${path.resolve(workspacePath, rawPath)})。` +
