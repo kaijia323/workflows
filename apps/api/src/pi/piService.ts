@@ -18,7 +18,7 @@ import { createWorkspaceBashHook, guardPathTool, toToolDefinition } from './work
 import { createFffFindTool, createFffGrepTool, FffIndexManager } from './fffTools.js'
 import { createAnySearchTools } from './anySearchTools.js'
 import { getAgentDefinitions } from './agentDefs.js'
-import { createPromptOnlyLoader, loadWorkspaceSkills, toSkillInfo, type SkillLoadContext } from './promptLoader.js'
+import { createPromptOnlyLoader, loadWorkspaceSkills, skillReadRoots, toSkillInfo, type SkillLoadContext } from './promptLoader.js'
 import { runSubAgent, SubAgentError, type SubAgentResult } from './subAgent.js'
 import { renderHistory } from './history.js'
 import {
@@ -234,21 +234,25 @@ export class PiAgentService {
     // - bash:createBashTool 注入 spawnHook,unbash 解析命令静态审计(重定向/文件命令/cd/嵌套替换)
     // - read/write/edit/grep/find/ls:包装 execute,参数路径先校验
     // - 搜索工具:fff 优先(每工作区常驻索引,毫秒级);fff 创建失败时回退内置 grep/find
+    // 只读放行根:工作区外 skills 目录(见 promptLoader.skillReadRoots)对 read/ls/fff 参数校验放行;
+    // bash/write/edit 一律不放行(下方 createBashTool 不传放行根)。
+    const skillCtx: SkillLoadContext = { cwd: workspace.path, skillsDir: this.store.skillsDir }
+    const extraReadRoots = skillReadRoots(skillCtx)
     const builtinTools = workspace.readOnly
       ? createReadOnlyTools(workspace.path)
       : createCodingTools(workspace.path).filter((tool) => tool.name !== 'bash')
     const nonSearchTools = builtinTools
       .filter((tool) => tool.name !== 'grep' && tool.name !== 'find')
-      .map((tool) => guardPathTool(toToolDefinition(tool), workspace.path))
+      .map((tool) => guardPathTool(toToolDefinition(tool), workspace.path, extraReadRoots))
     const finder = this.fff.get(workspace.id, workspace.path)
     const searchTools: ToolDefinition[] = finder
       ? [
-          guardPathTool(createFffFindTool(finder, workspace.path), workspace.path),
-          guardPathTool(createFffGrepTool(finder, workspace.path), workspace.path),
+          guardPathTool(createFffFindTool(finder, workspace.path), workspace.path, extraReadRoots),
+          guardPathTool(createFffGrepTool(finder, workspace.path), workspace.path, extraReadRoots),
         ]
       : builtinTools
           .filter((tool) => tool.name === 'grep' || tool.name === 'find')
-          .map((tool) => guardPathTool(toToolDefinition(tool), workspace.path))
+          .map((tool) => guardPathTool(toToolDefinition(tool), workspace.path, extraReadRoots))
     // 网络搜索工具:无 path 参数,不需 guardPathTool;key 可匿名调用,env 优先,config 回退
     // (getApiKey 动态读 config.json,保存后下次调用立即生效,无需重启会话)
     const webTools = createAnySearchTools({
@@ -294,7 +298,7 @@ export class PiAgentService {
     // skills:四来源加载(pi 全局 ~/.pi/agent/skills + 项目 .pi/skills + 工作台 .workflows/skills + 全局 ~/.agents/skills)
     const mainResourceLoader = createPromptOnlyLoader({
       appendSystemPrompt: orchestrator ? [orchestrator.body] : undefined,
-      skills: { cwd: workspace.path, skillsDir: this.store.skillsDir },
+      skills: skillCtx,
     })
 
     const { session } = await createAgentSession({
