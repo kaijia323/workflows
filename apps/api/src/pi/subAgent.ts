@@ -127,8 +127,18 @@ export function buildSubAgentTools(options: {
   const fullWrite = !workspace.readOnly && (writePatterns?.includes('**') ?? false)
   if (fullWrite) {
     // executor:完整读写工具集
+    // 注意:read/ls 已由上方只读基础工具注册(带 extraAllowedRoots,放行工作区外 skills),
+    // 此处必须排除,否则 SDK 注册表同名后者覆盖 ⇒ executor 的 read/ls 会丢失放行根(P2 回归),
+    // 与只读分支(explorer/planner/reviewer)放行面不一致。
     const coding = createCodingTools(workspace.path)
-      .filter((tool) => tool.name !== 'grep' && tool.name !== 'find' && tool.name !== 'bash')
+      .filter(
+        (tool) =>
+          tool.name !== 'grep' &&
+          tool.name !== 'find' &&
+          tool.name !== 'bash' &&
+          tool.name !== 'read' &&
+          tool.name !== 'ls',
+      )
       .map((tool) => guardPathTool(toToolDefinition(tool), workspace.path))
     tools.push(...coding)
     tools.push(

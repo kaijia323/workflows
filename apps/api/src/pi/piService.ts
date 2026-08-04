@@ -14,7 +14,7 @@ import {
   type AgentSessionEvent,
   type ToolDefinition,
 } from '@earendil-works/pi-coding-agent'
-import { createWorkspaceBashHook, guardPathTool, toToolDefinition } from './workspaceGuard.js'
+import { createWorkspaceBashHook, guardPathTool, guardToolSet, toToolDefinition } from './workspaceGuard.js'
 import { createFffFindTool, createFffGrepTool, FffIndexManager } from './fffTools.js'
 import { createAnySearchTools } from './anySearchTools.js'
 import { getAgentDefinitions } from './agentDefs.js'
@@ -241,9 +241,14 @@ export class PiAgentService {
     const builtinTools = workspace.readOnly
       ? createReadOnlyTools(workspace.path)
       : createCodingTools(workspace.path).filter((tool) => tool.name !== 'bash')
-    const nonSearchTools = builtinTools
-      .filter((tool) => tool.name !== 'grep' && tool.name !== 'find')
-      .map((tool) => guardPathTool(toToolDefinition(tool), workspace.path, extraReadRoots))
+    // 安全边界:extraReadRoots 只对只读工具(read/ls)生效,write/edit 一律不放行(guardToolSet 语义)
+    const nonSearchTools = guardToolSet(
+      builtinTools
+        .filter((tool) => tool.name !== 'grep' && tool.name !== 'find')
+        .map((tool) => toToolDefinition(tool)),
+      workspace.path,
+      extraReadRoots,
+    )
     const finder = this.fff.get(workspace.id, workspace.path)
     const searchTools: ToolDefinition[] = finder
       ? [

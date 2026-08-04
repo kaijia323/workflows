@@ -548,3 +548,23 @@ export function guardPathTool<T extends ToolDefinition>(
   }
   return definition
 }
+
+/**
+ * 工具集守卫:对一组工具逐个做路径守卫。
+ *
+ * 安全边界:extraAllowedRoots(工作区外 skills 只读放行根)只对只读工具(read/ls)生效;
+ * write/edit 等写工具一律不放行——否则模型可经写工具篡改/种植工作区外 skills
+ * (其内容会注入所有未来会话的 system prompt,属持久性提示注入面)。
+ * 调用方(主代理 piService、子代理 subAgent)必须经此函数或等价逻辑区分只读/写工具。
+ */
+export function guardToolSet(
+  tools: ToolDefinition[],
+  workspacePath: string,
+  extraAllowedRoots: string[] = [],
+): ToolDefinition[] {
+  return tools.map((tool) =>
+    tool.name === 'read' || tool.name === 'ls'
+      ? guardPathTool(tool, workspacePath, extraAllowedRoots)
+      : guardPathTool(tool, workspacePath),
+  )
+}

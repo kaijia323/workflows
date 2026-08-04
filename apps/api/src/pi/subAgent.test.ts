@@ -8,7 +8,7 @@ import { describe, expect, it } from 'vitest'
 import path from 'node:path'
 import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import type { AgentSessionEvent } from '@earendil-works/pi-coding-agent'
+import type { AgentSessionEvent, ToolDefinition } from '@earendil-works/pi-coding-agent'
 import type { Workspace } from '@workflows/shared'
 import type { AgentDefinition } from './agentDefs.js'
 import type { RunFile } from './runManager.js'
@@ -100,6 +100,62 @@ describe('buildSubAgentTools 子代理工具集(anysearch-search)', () => {
       for (const name of ['bash', 'edit', 'write']) {
         expect(executor.activeNames).toContain(name)
         expect(explorer.activeNames).not.toContain(name)
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('executor 分支 read 与只读分支 read 放行行为一致(P2 回归:extraAllowedRoots 生效,write/edit 仍拦)', async () => {
+    type Exec = (toolCallId: string, params: { path?: string }) => Promise<unknown>
+    const { dir, workspace } = makeWorkspace()
+    // 放行根:真实 HOME 下的 skills 路径(不在临时目录白名单内,纯词法校验,无 I/O)
+    const home = process.env.HOME ?? process.env.USERPROFILE
+    expect(home).toBeTruthy()
+    const extraRoot = path.join(home!, '.agents', 'skills')
+    const skillPath = path.join(extraRoot, 'grill-me', 'SKILL.md')
+    // read 对放行根内路径的 guard 结果:不抛「工作区边界拦截」即放行(真实文件缺失与否不影响断言)
+    const readOutcome = async (tools: ToolDefinition[]): Promise<string> => {
+      const readDef = tools.find((t) => t.name === 'read')!
+      try {
+        await (readDef.execute as unknown as Exec)('id', { path: skillPath })
+        return 'ok'
+      } catch (err) {
+        return String((err as Error).message)
+      }
+    }
+    try {
+      const explorer = buildSubAgentTools({
+        workspace,
+        definition: makeDef('explorer'),
+        fff: stubFff,
+        matcher: undefined,
+        extraAllowedRoots: [extraRoot],
+      })
+      const executor = buildSubAgentTools({
+        workspace,
+        definition: makeDef('executor', ['**']),
+        fff: stubFff,
+        matcher: undefined,
+        extraAllowedRoots: [extraRoot],
+      })
+      const executorNoRoots = buildSubAgentTools({
+        workspace,
+        definition: makeDef('executor', ['**']),
+        fff: stubFff,
+        matcher: undefined,
+      })
+      // 两分支 read 对放行根内路径均不抛工作区边界拦截(executor 的 read 不得丢放行根)
+      expect(await readOutcome(explorer.tools)).not.toMatch(/工作区边界拦截/)
+      expect(await readOutcome(executor.tools)).not.toMatch(/工作区边界拦截/)
+      // 控制组:不传放行根时 executor read 对同一路径仍拦(证明放行根确实生效,非空断言)
+      expect(await readOutcome(executorNoRoots.tools)).toMatch(/工作区边界拦截/)
+      // executor 工具集中 read 唯一(与只读基础工具统一,无重复注册覆盖)
+      expect(executor.tools.filter((t) => t.name === 'read')).toHaveLength(1)
+      // write/edit 对放行根内路径仍拦(P1 语义在子代理侧同样成立)
+      for (const name of ['write', 'edit']) {
+        const def = executor.tools.find((t) => t.name === name)!
+        await expect((def.execute as unknown as Exec)('id', { path: skillPath })).rejects.toThrow(/工作区边界拦截/)
       }
     } finally {
       rmSync(dir, { recursive: true, force: true })

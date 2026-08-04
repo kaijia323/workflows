@@ -14,6 +14,7 @@ import {
   auditBashCommand,
   createWorkspaceBashHook,
   guardPathTool,
+  guardToolSet,
   isAllowedTargetPath,
   isPathWithinWorkspace,
   normalizeBashPath,
@@ -354,6 +355,63 @@ describe('extraAllowedRoots 只读放行根', () => {
   it('bash 不放行回归:放行根不作用于 bash 层,cat 读 skills 仍拦', () => {
     expect(auditBashCommand('cat ~/.agents/skills/grill-me/SKILL.md', WS).length).toBeGreaterThan(0)
     expect(auditBashCommand('cat C:\\Users\\kaijia\\.agents\\skills\\grill-me\\SKILL.md', WS).length).toBeGreaterThan(0)
+  })
+})
+
+describe('guardToolSet:放行根仅对只读工具(read/ls)生效,write/edit 不放行(P1 安全边界)', () => {
+  type Exec = (toolCallId: string, params: { path?: string }) => Promise<unknown>
+
+  function makeDef(name: string): { def: ToolDefinition; executed: string[] } {
+    const executed: string[] = []
+    const def = {
+      name,
+      label: name,
+      description: name,
+      parameters: {},
+      execute: async (_toolCallId: string, params: { path?: string }) => {
+        executed.push(params.path ?? '')
+        return { content: [{ type: 'text', text: 'ok' }] }
+      },
+    } as unknown as ToolDefinition
+    return { def, executed }
+  }
+
+  function callExecute(def: ToolDefinition, params: { path?: string }): Promise<unknown> {
+    return (def.execute as unknown as Exec)('id', params)
+  }
+
+  const home = process.env.HOME ?? process.env.USERPROFILE
+  const skillsRoot = path.join(home!, '.agents', 'skills')
+
+  it('write/edit 对放行根内路径仍拦;read/ls 放行(与主代理 piService 调用点同构)', async () => {
+    const defs = ['read', 'write', 'edit', 'ls'].map((name) => makeDef(name))
+    const guarded = guardToolSet(defs.map((d) => d.def), WS, [skillsRoot])
+    const skillPath = path.join(skillsRoot, 'grill-me', 'SKILL.md')
+
+    // 只读工具:放行根内路径放行,原 execute 执行
+    const read = guarded.find((t) => t.name === 'read')!
+    await expect(callExecute(read, { path: skillPath })).resolves.toBeTruthy()
+    expect(defs.find((d) => d.def === read)!.executed).toEqual([skillPath])
+
+    const ls = guarded.find((t) => t.name === 'ls')!
+    await expect(callExecute(ls, { path: skillsRoot })).resolves.toBeTruthy()
+    expect(defs.find((d) => d.def === ls)!.executed).toEqual([skillsRoot])
+
+    // 写工具:放行根内路径仍拦(P1:write/edit 不得被放行根放开)
+    for (const name of ['write', 'edit']) {
+      const def = guarded.find((t) => t.name === name)!
+      await expect(callExecute(def, { path: skillPath })).rejects.toThrow(/工作区边界拦截/)
+      expect(defs.find((d) => d.def === def)!.executed).toEqual([])
+    }
+  })
+
+  it('缺省(不传 extraAllowedRoots)时 read 对放行根路径仍拦(回归)', async () => {
+    const { def, executed } = makeDef('read')
+    const guarded = guardToolSet([def], WS)
+    await expect(callExecute(guarded[0], { path: path.join(skillsRoot, 'grill-me', 'SKILL.md') })).rejects.toThrow(
+      /工作区边界拦截/,
+    )
+    expect(executed).toEqual([])
   })
 })
 
