@@ -17,7 +17,7 @@ Turborepo monorepo — 基于 **pi SDK** 的 Web Agent 工作台(聊天 + 工作
 ## 关键约定
 
 - **统一响应结构**:`{ code, message, data }`,code 0 为成功;错误经 `app.onError` 统一格式化,不抛裸异常到前端
-- **数据隔离**:所有运行数据(API key / 工作区 / 会话)存 `.workflows/`,开发在仓库根、生产在 `~/.workflows`,**绝不读写 pi 全局配置 `~/.pi/agent`**
+- **数据隔离**:所有运行数据(API key / 工作区 / 会话)存 `.workflows/`,开发在仓库根、生产在 `~/.workflows`;**只读**例外:加载 skills 时读取 `~/.pi/agent/skills` 与 `~/.agents/skills`(见下方「Skills」),绝不写入任何 pi 全局配置
 - **会话模型**:一个工作区一个持久化会话(JSONL),上下文限定在工作区目录;只读工作区只给 `read/grep/find/ls` 工具
 - **工作区边界守卫**:工具不允许逃逸到工作区目录外——`src/pi/workspaceGuard.ts` 用 unbash 静态审计 bash 命令(重定向/文件命令/cd/嵌套替换,解析失败或含未知展开一律拒绝),read/write/edit/grep/find/ls 包装 execute 校验 path 参数;改动守卫时同步更新 `workspaceGuard.test.ts`
 - **流式输出**:`POST /api/agent/workspaces/:id/prompt` 走 SSE,事件类型见 shared 的 `SessionEvent`;前端按模型输出顺序渲染(思考/正文/工具调用交错)
@@ -40,3 +40,10 @@ pnpm typecheck / lint / test
 - 测试用 Vitest(api: `app.test.ts`;web: `App.test.ts`、`useAgent.test.ts`)
 - 会话事件映射在 `piService.ts` 的 `mapSessionEvent`,历史恢复在 `renderHistory`,两者需保持一致的输出顺序语义
 - **代理定义是 .md 文件,tsc 不复制**:`apps/api/scripts/copy-agents.mjs` 在 build 时把 `src/pi/agents/*.md` 复制到 `dist/pi/agents`;改动 `src/pi/agents/*.md` 后必须 `pnpm build` 生产才生效(dev 直接跑 src 不受影响)。`PiAgentService.create()` 启动时会校验 orchestrator 定义存在,缺失直接抛错——不要绕过这个检查
+
+## Skills(只读来源)
+
+- agent 四来源加载 skills:`~/.pi/agent/skills`(pi 全局,`PI_CODING_AGENT_DIR` 可重定向)、`<工作区>/.pi/skills`(项目)、`.workflows/skills`(工作台)、`~/.agents/skills`(全局 agents);**只读**,运行数据仍只写 `.workflows/`
+- `.workflows/agent/skills` **不是**来源(已从清单移除,勿放内容)
+- 实现:`apps/api/src/pi/promptLoader.ts`(`loadWorkspaceSkills`/`toSkillInfo`/`classifySkillSource`)、端点 `GET /api/agent/workspaces/:id/skills`、前端 `ChatPane.vue` `/` 下拉;测试 `skillsLoader.test.ts`(四来源隔离:env `PI_CODING_AGENT_DIR` + `homeDir` 注入,不触碰真实用户目录)
+- SKILL.md 格式与注意事项见 README「Skills」小节;新增/修改 skill 后需重开会话模型才感知

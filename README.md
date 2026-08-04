@@ -10,6 +10,7 @@ Turborepo monorepo — 基于 pi SDK 的 Web Agent 工作台(DAG 可视化骨架
 - **模型配置**:切换 DeepSeek 模型与思考级别,手动填入 API key(存于 `.workflows/config.json`)
 - **工作流编排**:主代理(总指挥)调度 4 个内置子代理(explorer 探索 → planner 计划 → executor 执行 ⇄ reviewer 审查),计划需人工闸门批准;右侧 DAG 图实时展示节点状态,点击查看子代理完整对话(模态窗)
 - **代理文件化**:代理定义 = markdown(frontmatter 声明能力 + 正文定义行为),内置随代码分发,`.workflows/agents/` 同名覆盖或新增自定义代理
+- **skills 读取**:agent 可读取四个来源的 skills(`~/.pi/agent/skills` / `<工作区>/.pi/skills` / `.workflows/skills` / `~/.agents/skills`),聊天框输入 `/` 弹出搜索下拉,`/skill:<name>` 即时调用(见下文「Skills」)
 - **黑板产物**:每次需求处理(run)的探索/计划/执行/审查报告落盘 `.wf-runs/<runId>/`,可 git 追踪
 
 ## 技术栈
@@ -22,7 +23,7 @@ Turborepo monorepo — 基于 pi SDK 的 Web Agent 工作台(DAG 可视化骨架
 
 ## 数据存储(`.workflows/`)
 
-所有数据隔离在项目自己的 `.workflows/` 目录,**不读取/不修改 pi 全局配置(`~/.pi/agent`)**:
+运行数据(API key / 工作区 / 会话 / 代理覆盖)全部隔离在项目自己的 `.workflows/` 目录,**不写** pi 全局配置(`~/.pi/agent`);仅**只读**其 `skills` 子目录作为 skill 来源(见「Skills」):
 
 | 环境 | 存储位置 |
 | --- | --- |
@@ -30,7 +31,43 @@ Turborepo monorepo — 基于 pi SDK 的 Web Agent 工作台(DAG 可视化骨架
 | 生产 | `~/.workflows` |
 
 包含 `config.json`(API key / 模型 / 思考级别)、`workspaces.json`(工作区列表)、
-`workspace-sessions.json`(会话文件索引)、`agent/`(pi ModelRuntime 的 auth/models 与会话文件)。
+`workspace-sessions.json`(会话文件索引)、`agent/`(pi ModelRuntime 的 auth/models 与会话文件)、`skills/`(工作台 skill 来源)。
+
+## Skills(技能)
+
+agent 通过 **Agent Skills** 机制(pi SDK `loadSkills`)加载四个来源的 skills,
+聊天框输入 `/` 弹出搜索下拉(名称前缀 > 名称包含 > 描述匹配,最多 8 条),
+`ArrowDown/Up` 循环高亮、`Enter` 选中填入 `/skill:<name> `(回车发送,可追加参数)、`Esc`/`blur`/切工作区关闭,每项标注来源标签。
+
+### SKILL.md 格式
+
+每个 skill = 一个目录,内含 `SKILL.md`(frontmatter + 正文指令):
+
+```markdown
+---
+name: greet            # 可选,缺省回退目录名(小写字母/数字/连字符)
+description: 用中文打招呼  # 必填,缺失则整个 skill 不加载
+disable-model-invocation: false  # 可选;true 时不注入 system prompt,只能 /skill:name 显式调用
+---
+<正文指令:告诉模型该 skill 的用法/约束>
+```
+
+目录含 `SKILL.md` 即整个目录一个 skill(不递归);无 `SKILL.md` 时扫描根下散落的 `.md`。
+
+### 四来源目录
+
+| 来源 | 目录 | 分类标签 | 加载方式 |
+| --- | --- | --- | --- |
+| pi 全局 | `~/.pi/agent/skills`(Windows:`C:\Users\<user>\.pi\agent\skills`) | 全局(pi) | `includeDefaults`(SDK 默认 `getAgentDir()`;`PI_CODING_AGENT_DIR` 环境变量可重定向) |
+| 项目 | `<工作区>/.pi/skills` | 项目 | `includeDefaults` 附带(`cwd` = 工作区) |
+| 工作台 | `<root>/.workflows/skills`(开发 = 仓库根,生产 = `~/.workflows`) | 工作台 | `skillPaths` 显式 |
+| 全局 agents | `~/.agents/skills`(Windows:`C:\Users\<user>\.agents\skills`) | 全局(agents) | `skillPaths` 显式 |
+
+### 注意事项
+
+- **新增/修改 skill 后需重开会话**:skills 在会话创建时读入 system prompt,下拉列表可重开工作区即时刷新(端点现扫),但模型要感知新 skill 必须新建会话或重启 api;`/skill:<name>` 展开始终即时可用。
+- **安全提示**:skill 正文是任意指令,来源可能不可信,使用前请 review;`disable-model-invocation: true` 可让 skill 不进 system prompt(仅显式调用)。
+- 这些目录**仅只读**,本应用运行数据仍只写 `.workflows/`。
 
 ## 端口策略(对外只暴露一个入口)
 
@@ -69,6 +106,7 @@ pnpm test        # Vitest(依赖 build)
 | PATCH/DELETE | `/agent/workspaces/:id` | 修改只读属性 / 移除 |
 | POST | `/agent/workspaces/:id/open` | 打开会话并恢复历史 |
 | GET | `/agent/workspaces/:id/status` | 会话状态(模型/用量/是否流式中) |
+| GET | `/agent/workspaces/:id/skills` | 工作区可用 skills 列表(输入框 `/` 下拉数据源) |
 | POST | `/agent/workspaces/:id/prompt` | 发送消息(**SSE 流式**返回事件) |
 | POST | `/agent/workspaces/:id/abort` | 中止当前生成 |
 | GET | `/agent/workspaces/:id/run` | 当前 run 快照(DAG 图 / 闸门状态 / 恢复) |
