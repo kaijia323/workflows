@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import type { AgentStore } from '../composables/useAgent'
+import McpPanel from './McpPanel.vue'
 
 const props = defineProps<{
   agent: AgentStore
@@ -183,6 +184,9 @@ async function handleAnySave() {
           已保存到后端配置
         </p>
       </div>
+
+      <!-- MCP 外部工具:独立 section -->
+      <McpPanel :agent="agent" />
 
       <!-- 环境信息 -->
       <div

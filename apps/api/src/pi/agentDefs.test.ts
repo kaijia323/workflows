@@ -150,7 +150,10 @@ describe('compileWriteMatcher / isWriteAllowed', () => {
 
   it('绝对路径 / .. 逃逸一律拒绝', () => {
     const m = compileWriteMatcher(['**'])
-    expect(isWriteAllowed('C:/Users/x/secret.md', m)).toBe(false)
+    // 平台化:win32 用盘符绝对路径;非 win32 用 POSIX 绝对路径
+    // (Windows 盘符路径在 Linux 下是相对路径,会被 glob 命中而误放行)
+    const absPath = process.platform === 'win32' ? 'C:/Users/x/secret.md' : '/etc/secret.md'
+    expect(isWriteAllowed(absPath, m)).toBe(false)
     expect(isWriteAllowed('../outside.md', m)).toBe(false)
     expect(isWriteAllowed('..', m)).toBe(false)
   })

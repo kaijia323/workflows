@@ -4,8 +4,10 @@ import { HTTPException } from 'hono/http-exception'
 import { streamSSE } from 'hono/streaming'
 import { homedir } from 'node:os'
 import path from 'node:path'
-import type { HistoryItem } from '@workflows/shared'
+import type { HistoryItem, McpServerConfig, McpServerStatus, McpToolInfo } from '@workflows/shared'
 import { addWorkspace, getActiveSession, getSession, hasApiKey, listDirectory, loadWorkspaces, removeWorkspace, updateWorkspace, type WorkflowsStore } from '../config.js'
+import { loadMcpServers, removeMcpServer, upsertMcpServer } from '../mcpConfig.js'
+import { testMcpServer } from '../pi/mcpTools.js'
 import { PiAgentService } from '../pi/piService.js'
 
 export function registerAgentRoutes(app: Hono, store: WorkflowsStore, pi: PiAgentService): void {
@@ -59,6 +61,78 @@ export function registerAgentRoutes(app: Hono, store: WorkflowsStore, pi: PiAgen
       ? await pi.setThinkingLevel(body.workspaceId, body.level)
       : await pi.setThinkingLevel(undefined, body.level)
     return c.json({ code: 0, message: '已切换思考级别', data: config })
+  })
+
+  /* ---------------- MCP server 管理(独立 mcp.json;与 config 区段解耦) ---------------- */
+
+  // 配置 + 运行时状态按 name 合并:已连接/尝试过的 server 用 manager 状态;
+  // 其余由配置推导(disabled 或「尚未连接」,提示需重开会话生效)
+  function mcpOverview(): { servers: McpServerConfig[]; status: McpServerStatus[] } {
+    const servers = loadMcpServers(store)
+    const statusByName = new Map(pi.getMcpStatus().map((s) => [s.name, s]))
+    const status: McpServerStatus[] = servers.map((server) => {
+      const existing = statusByName.get(server.name)
+      if (existing) return existing
+      return {
+        name: server.name,
+        state: server.enabled === true ? 'error' : 'disabled',
+        error:
+          server.enabled === true
+            ? '尚未连接(配置变更后需新建会话/重开工作区生效)'
+            : undefined,
+        toolCount: 0,
+        lastCheckedAt: null,
+      }
+    })
+    return { servers, status }
+  }
+
+  // 配置列表 + 运行时状态
+  app.get('/api/agent/mcp', (c) => c.json({ code: 0, message: 'ok', data: mcpOverview() }))
+
+  // 新增/更新 server(upsert 语义;name 以 URL 参数为准;校验失败 400 零写入)
+  app.put('/api/agent/mcp/:name', async (c) => {
+    const name = c.req.param('name')
+    const raw = await readJson<{ command?: unknown; args?: unknown; enabled?: unknown }>(c)
+    const server: McpServerConfig = {
+      name,
+      command: typeof raw?.command === 'string' ? raw.command : '',
+      // 透传原始值:args/enabled 不做类型收窄,由存储层 validateMcpServers 统一校验
+      // (非数组 args / 非布尔 enabled → 400,校验失败零写入)
+      args: raw?.args as string[] | undefined,
+      enabled: raw?.enabled as boolean | undefined,
+    }
+    try {
+      upsertMcpServer(store, server)
+    } catch (error) {
+      throw new HTTPException(400, { message: error instanceof Error ? error.message : String(error) })
+    }
+    // 断旧连接 + 清缓存:新会话生效;旧会话工具集不变
+    await pi.disposeMcpServer(name)
+    return c.json({ code: 0, message: '已保存 MCP server', data: mcpOverview() })
+  })
+
+  // 删除 server(404 若不存在)+ 断开连接
+  app.delete('/api/agent/mcp/:name', async (c) => {
+    const name = c.req.param('name')
+    if (!removeMcpServer(store, name)) throw new HTTPException(404, { message: `MCP server「${name}」不存在` })
+    await pi.disposeMcpServer(name)
+    return c.json({ code: 0, message: '已删除', data: mcpOverview() })
+  })
+
+  // 一次性测试连接(connect + listTools + close):不污染 manager 缓存、不注册进会话;
+  // testMcpServer 内部已含 10s connect + 10s list 超时,外层再加 15s 整体上限兜底
+  app.post('/api/agent/mcp/:name/test', async (c) => {
+    const name = c.req.param('name')
+    const server = loadMcpServers(store).find((s) => s.name === name)
+    if (!server) throw new HTTPException(404, { message: `MCP server「${name}」不存在` })
+    let result: { ok: true; tools: McpToolInfo[] } | { ok: false; error: string }
+    try {
+      result = await withTimeout(testMcpServer(server), 15_000, '测试超时(15000ms)')
+    } catch (error) {
+      result = { ok: false, error: error instanceof Error ? error.message : String(error) }
+    }
+    return c.json({ code: 0, message: result.ok ? 'ok' : '连接失败', data: result })
   })
 
   /* ---------------- 工作区 ---------------- */
@@ -223,6 +297,23 @@ async function readJson<T>(c: Context): Promise<T> {
   } catch {
     return {} as T
   }
+}
+
+/** Promise.race 超时包装:超时 reject 中文文案(原 promise 的 rejection 被吞掉,防 unhandledRejection) */
+function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(message)), ms)
+    promise.then(
+      (v) => {
+        clearTimeout(timer)
+        resolve(v)
+      },
+      (e) => {
+        clearTimeout(timer)
+        reject(e)
+      },
+    )
+  })
 }
 
 function requireWorkspace(store: WorkflowsStore, id: string) {

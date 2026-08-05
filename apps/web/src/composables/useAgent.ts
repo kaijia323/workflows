@@ -1,5 +1,5 @@
 import { computed, reactive, ref } from 'vue'
-import type { AgentConfig, HistoryItem, RunSnapshot, SessionEvent, SessionList, SessionMeta, SessionStatus, SkillInfo, Workspace } from '@workflows/shared'
+import type { AgentConfig, HistoryItem, McpServerConfig, McpServerStatus, McpToolInfo, RunSnapshot, SessionEvent, SessionList, SessionMeta, SessionStatus, SkillInfo, Workspace } from '@workflows/shared'
 
 export interface UiToolRun {
   callId: string
@@ -163,6 +163,8 @@ export function useAgent() {
   const gateRequest = ref<UiGateRequest | null>(null)
   /** 当前工作区可用 skills(输入框 / 搜索下拉数据源) */
   const skills = ref<SkillInfo[]>([])
+  /** MCP server 配置 + 运行时状态(设置面板) */
+  const mcp = ref<{ servers: McpServerConfig[]; status: McpServerStatus[] } | null>(null)
 
   // 当前流式 assistant 消息(增量累积)
   let pending: UiMessage | null = null
@@ -182,7 +184,8 @@ export function useAgent() {
 
   async function init(): Promise<void> {
     try {
-      await Promise.all([refreshConfig(), refreshWorkspaces()])
+      // MCP 配置拉取失败静默(mcp 为 null,面板显示空),不阻塞聊天
+      await Promise.all([refreshConfig(), refreshWorkspaces(), refreshMcp().catch(() => {})])
       connectionError.value = null
     } catch (error) {
       connectionError.value = error instanceof Error ? error.message : String(error)
@@ -207,6 +210,41 @@ export function useAgent() {
       body: JSON.stringify({ apiKey: key }),
     })
     await refreshConfig()
+  }
+
+  /* ---- MCP 外部工具(独立 mcp.json;全部走 /api/agent/mcp*) ---- */
+
+  /** 拉取 MCP server 配置 + 运行时状态 */
+  async function refreshMcp(): Promise<void> {
+    mcp.value = await request<{ servers: McpServerConfig[]; status: McpServerStatus[] }>('/api/agent/mcp')
+  }
+
+  /** 新增/更新 server(upsert 语义;保存后后端断开旧连接,新会话生效) */
+  async function saveMcpServer(server: McpServerConfig): Promise<void> {
+    await request(`/api/agent/mcp/${encodeURIComponent(server.name)}`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        name: server.name,
+        command: server.command,
+        args: server.args ?? [],
+        enabled: server.enabled ?? false,
+      }),
+    })
+    await refreshMcp()
+  }
+
+  /** 删除 server */
+  async function deleteMcpServer(name: string): Promise<void> {
+    await request(`/api/agent/mcp/${encodeURIComponent(name)}`, { method: 'DELETE' })
+    await refreshMcp()
+  }
+
+  /** 一次性测试连接(不污染缓存、不注册进会话);返回 { ok, tools?, error? } */
+  async function testMcpServer(name: string): Promise<{ ok: boolean; tools?: McpToolInfo[]; error?: string }> {
+    return request<{ ok: boolean; tools?: McpToolInfo[]; error?: string }>(`/api/agent/mcp/${encodeURIComponent(name)}/test`, {
+      method: 'POST',
+    })
   }
 
   async function addWorkspace(path: string): Promise<void> {
@@ -714,6 +752,7 @@ export function useAgent() {
     subSessions,
     gateRequest,
     skills,
+    mcp,
     hasApiKey,
     hasAnySearchApiKey,
     init,
@@ -721,6 +760,10 @@ export function useAgent() {
     refreshWorkspaces,
     saveApiKey,
     saveAnySearchApiKey,
+    refreshMcp,
+    saveMcpServer,
+    deleteMcpServer,
+    testMcpServer,
     addWorkspace,
     removeWorkspace,
     toggleReadOnly,

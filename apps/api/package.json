@@ -16,6 +16,7 @@
     "@earendil-works/pi-coding-agent": "^0.83.0",
     "@ff-labs/fff-node": "0.10.1",
     "@hono/node-server": "^2.0.12",
+    "@modelcontextprotocol/sdk": "^1.30.0",
     "@workflows/shared": "workspace:*",
     "hono": "^4.12.34",
     "picomatch": "^4.0.5",

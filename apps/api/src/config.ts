@@ -68,7 +68,7 @@ export function createStore(): WorkflowsStore {
   }
 }
 
-function readJson<T>(file: string, fallback: T): T {
+export function readJson<T>(file: string, fallback: T): T {
   if (!existsSync(file)) return fallback
   try {
     return JSON.parse(readFileSync(file, 'utf-8')) as T
@@ -77,7 +77,7 @@ function readJson<T>(file: string, fallback: T): T {
   }
 }
 
-function writeJson(file: string, value: unknown): void {
+export function writeJson(file: string, value: unknown): void {
   writeFileSync(file, JSON.stringify(value, null, 2) + '\n', 'utf-8')
 }
 

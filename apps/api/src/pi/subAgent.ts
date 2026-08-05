@@ -22,12 +22,14 @@ import {
 } from '@earendil-works/pi-coding-agent'
 import type { SessionEvent, Workspace } from '@workflows/shared'
 import { loadConfig, type WorkflowsStore } from '../config.js'
+import { loadMcpServers } from '../mcpConfig.js'
 import type { AgentDefinition } from './agentDefs.js'
 import { compileWriteMatcher, isWriteAllowed, type WriteMatcher } from './agentDefs.js'
 import { createPromptOnlyLoader, skillReadRoots, type SkillLoadContext } from './promptLoader.js'
 import type { FffIndexManager } from './fffTools.js'
 import { createFffFindTool, createFffGrepTool } from './fffTools.js'
 import { createAnySearchTools } from './anySearchTools.js'
+import { McpManager, createMcpTools } from './mcpTools.js'
 import type { RunFile } from './runManager.js'
 import { guardPathTool, toToolDefinition, createWorkspaceBashHook } from './workspaceGuard.js'
 
@@ -69,6 +71,8 @@ export interface RunSubAgentOptions {
   store: WorkflowsStore
   runtime: ModelRuntime
   fff: FffIndexManager
+  /** MCP 连接管理器(与主代理共享连接与工具缓存) */
+  mcp: McpManager
   workspace: Workspace
   definition: AgentDefinition
   run: RunFile
@@ -99,8 +103,10 @@ export function buildSubAgentTools(options: {
   getAnySearchApiKey?: () => string | undefined
   /** 工作区外只读放行根(见 promptLoader.skillReadRoots);缺省 [] 保持现有行为 */
   extraAllowedRoots?: string[]
+  /** MCP 外部工具(调用方已构建;缺省 [] 保持现有行为) */
+  mcpTools?: ToolDefinition[]
 }): { tools: ToolDefinition[]; activeNames: string[] } {
-  const { workspace, definition, fff, matcher, getAnySearchApiKey, extraAllowedRoots = [] } = options
+  const { workspace, definition, fff, matcher, getAnySearchApiKey, extraAllowedRoots = [], mcpTools = [] } = options
   const builtinTools = createReadOnlyTools(workspace.path).filter(
     (tool) => tool.name !== 'grep' && tool.name !== 'find',
   )
@@ -114,11 +120,15 @@ export function buildSubAgentTools(options: {
   }
   // 网络搜索:子代理联网(与主代理同一工厂;独立会话注册表,无去重问题)
   tools.push(...createAnySearchTools({ getApiKey: getAnySearchApiKey }))
+  // MCP 外部工具:调用方已构建(共享 McpManager,不新增连接);
+  // 注意:工具名白名单必须与 customTools 同步显式列入(与 anysearch 同纪律)
+  tools.push(...mcpTools)
   const activeNames = [
     'read',
     'ls',
     ...tools.filter((t) => t.name.startsWith('fff-')).map((t) => t.name),
     'anysearch-search',
+    ...mcpTools.map((t) => t.name),
   ]
 
   const writePatterns = definition.frontmatter.write
@@ -339,16 +349,20 @@ export class SubAgentError extends Error {
  * 运行子代理:创建独立会话(prompt = 任务 + 产物目录说明),镜像事件,返回摘要。
  */
 export async function runSubAgent(options: RunSubAgentOptions): Promise<SubAgentResult> {
-  const { store, runtime, fff, workspace, definition, run, callId, task, model, thinkingLevel, onEvent, signal } = options
+  const { store, runtime, fff, mcp, workspace, definition, run, callId, task, model, thinkingLevel, onEvent, signal } = options
   const name = definition.frontmatter.name
   const matcher = compileWriteMatcher(definition.frontmatter.write)
   // 与主代理共用同一 SkillLoadContext 与放行根(主/子代理 skills 与只读边界一致)
   const skillCtx: SkillLoadContext = { cwd: workspace.path, skillsDir: store.skillsDir }
+  // MCP 外部工具:只读工作区不注册;子代理共享主代理的 McpManager(连接与工具列表缓存复用,零额外连接成本)
+  const mcpServers = loadMcpServers(store)
+  const mcpTools = workspace.readOnly ? [] : await createMcpTools(mcp, mcpServers)
   const { tools, activeNames } = buildSubAgentTools({
     workspace,
     definition,
     fff,
     matcher,
+    mcpTools,
     getAnySearchApiKey: () => loadConfig(store).anySearchApiKey ?? undefined,
     extraAllowedRoots: skillReadRoots(skillCtx),
   })

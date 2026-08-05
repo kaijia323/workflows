@@ -76,6 +76,36 @@ export interface AgentConfig {
   thinkingLevels: string[]
 }
 
+/** MCP server 配置(存 .workflows/mcp.json 独立文件,与 config.json 平级;agent 无途径修改,仅用户经 API/UI 配置) */
+export interface McpServerConfig {
+  /** 唯一名,匹配 /^[a-zA-Z0-9][a-zA-Z0-9_-]*$/,≤ 40 字符 */
+  name: string
+  /** 启动可执行文件(如 npx / node / python),由配置直供,不经 shell */
+  command: string
+  /** 启动参数(如 ["-y", "@modelcontextprotocol/server-filesystem", "/path"]) */
+  args?: string[]
+  /** 是否启用(新增默认 false,opt-in;缺省视为未启用,opt-in 语义在消费端 createMcpTools 实现) */
+  enabled?: boolean
+}
+
+/** MCP server 单个工具的展示信息(测试连接/状态面板用) */
+export interface McpToolInfo {
+  name: string
+  description?: string
+}
+
+/** MCP server 运行时状态(前端面板展示) */
+export interface McpServerStatus {
+  name: string
+  /** connecting:连接建立中(ensureEntry 后的初始态,不误报 connected) */
+  state: 'disabled' | 'connecting' | 'connected' | 'error'
+  /** state=error 时的错误文案 */
+  error?: string
+  /** 已缓存工具数 */
+  toolCount: number
+  lastCheckedAt: number | null
+}
+
 /** skill 来源分类(前端下拉展示) */
 export type SkillSource = 'pi-agent' | 'pi-project' | 'workspace' | 'global-agents' | 'path'
 

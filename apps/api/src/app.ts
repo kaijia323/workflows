@@ -21,10 +21,11 @@ export const app = new Hono()
  * 初始化 pi agent 服务(创建 ModelRuntime 与 .workflows 存储,注册 agent 路由)。
  * 由 index.ts 启动时调用;测试环境无需调用。
  */
-export async function initAgentRoutes(): Promise<void> {
+export async function initAgentRoutes(): Promise<PiAgentService> {
   const store = createStore()
   const pi = await PiAgentService.create()
   registerAgentRoutes(app, store, pi)
+  return pi
 }
 
 // 统一错误响应:保持 ApiResponse<T> 结构,而不是 Hono 默认错误格式

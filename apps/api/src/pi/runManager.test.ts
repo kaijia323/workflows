@@ -8,7 +8,7 @@
  * 背景:修复 fd6057f「回合结束 done 即释放 run」导致的同任务跨非闸门回合被拆成多个 runId
  * (实测反例 707736e6 / 1c0fdcc1);方案 c1 = 显式 complete_task + 回合结束三分支。
  */
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import path from 'node:path'
 import { mkdtempSync, rmSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -243,9 +243,16 @@ describe('done 冻结:done 后 run.json 不再改写', () => {
       appendRunAgentCall(dir, run, makeCall('explorer', 'c1', 1))
       const before = loadRun(dir, run.runId)!
       // 纯文本交付回合 finally:决策 done → 首次置 done 落盘
-      run.status = 'done'
-      run.gate.pending = false
-      saveRun(dir, run)
+      // saveRun 内部用 Date.now() 写 updatedAt;同毫秒内两次写盘会相等,导致 toBeGreaterThan
+      // 偶发失败。用 mock 时钟确定性推进(保留「必须严格递增」语义,比 sleep 方案零 flake)。
+      const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(before.updatedAt + 1000)
+      try {
+        run.status = 'done'
+        run.gate.pending = false
+        saveRun(dir, run)
+      } finally {
+        nowSpy.mockRestore()
+      }
       const after = loadRun(dir, run.runId)!
       expect(after.status).toBe('done')
       expect(after.updatedAt).toBeGreaterThan(before.updatedAt) // 正常推进一次

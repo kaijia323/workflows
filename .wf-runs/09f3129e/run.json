@@ -1,0 +1,53 @@
+{
+  "runId": "09f3129e",
+  "sessionId": "76d6d9aa-fbeb-4182-9b44-54f7aadaa8a9",
+  "status": "done",
+  "gate": {
+    "pending": false,
+    "planFile": null
+  },
+  "createdAt": 1785902457580,
+  "updatedAt": 1785910015184,
+  "agents": [
+    {
+      "callId": "call_00_yqH9KlBvqUuYZQFC5JxL2403",
+      "agent": "explorer",
+      "summary": "探索完成,报告已写入 `.wf-runs/09f3129e/01-exploration-1.md`。摘要:\n\n**1. 项目**:workflows 是一个 Turborepo + pnpm monorepo 的 **Web Agent 工作台**,基于 pi SDK(`@earendil-works/pi-coding-agent@0.83.0`)构建:Vue 3 + Vite 前端、Hono 后端、TypeScript 6;核心是主代理编排 4 个子代理(explorer/planner/executor/reviewer)的 DAG 工作流 + 人工闸门 + 产物落盘 `.wf-runs/`。入口:`apps/api/src/index.ts` → `app.ts` → `agent/routes.ts`。\n\n**2. MCP 现状**:**零 MCP 代码/配置/依赖/文档**。唯一痕迹是历史 run 产物 `.wf-runs/24d5aebd/` 中「否决 anysearch 的 MCP 端点、改用 REST」的决策记录(与当前代码无关)。\n\n**3. 架构与接入点**:核心模块为 `pi/piService.ts`(会话与工具组装)、`subAgent.ts`(子代理)、`workspaceGuard.ts`(边界守卫)、`fffTools.ts`/`anySearchTools.ts`(工具工厂)、`config.ts`(存储)、`runManager.ts`(run 生命周期)。**MCP 最自然接入点**:仿 `createAnySearchTools` 工厂把 MCP server 工具包装成 `ToolDefinition`,注册进主代理(`piService.ts openSession` 的 `customTools`)与子代理(`subAgent.ts buildSubAgentTools`)两处(需同步);配置扩展 `StoredConfig` + 新路由。\n\n**4. 依赖**:pnpm 10 workspace;`@modelcontextprotocol/sdk` 仅在 lockfile 中作为 openai/genai 的 optional peer 出现,**未安装**;pi SDK v0.83.0 无原生 MCP 能力(已直接验证其 dist 类型与文档)。\n\n**5. 测试/构建**:turbo 编排;`pnpm test`(Vitest,依赖 build,各工具模块均有注入式单测)、`pnpm build`(tsc + copy-agents.mjs)、`pnpm typecheck/lint`(ESLint flat config + husky/lint-staged)。\n\n**6. 文档**:README/AGENTS.md/docs/dag-workflow.md 均**无 MCP 规划**;无 roadmap。\n\n**结论**:MCP client 接入可行性高,推荐 v1 用官方 SDK 实现 stdio 传输的 client 工具;最大风险是 MCP server 执行面绕过现有 `workspaceGuard` 边界守卫,需配套安全审查。报告含全部关键文件与行级定位。",
+      "artifact": ".wf-runs/09f3129e/01-exploration-1.md",
+      "sessionFile": "sessions/3559367b-f016-4fd5-aec7-87df6c60414f/sub/09f3129e/2026-08-05T04-00-57-581Z_019fd014-e2ed-79ad-9e38-fc6be615c583.jsonl",
+      "ts": 1785902632609
+    },
+    {
+      "callId": "call_00_ktm89S22gL1XYme19lDK4519",
+      "agent": "planner",
+      "summary": "计划已写入 `.wf-runs/09f3129e/02-plan-1.md`。摘要如下:\n\n## 计划摘要\n\n**目标**:为 workflows 仓库新增 MCP **client** v1(stdio 传输),将外部 MCP server 的 tools 包装为 pi SDK `ToolDefinition`,注册进主代理与子代理会话;不做 MCP server。依赖官方 `@modelcontextprotocol/sdk@^1.30.0`(**锁 v1 线**,明确排除 v2 分拆包 `@modelcontextprotocol/client`)。\n\n**9 个实施步骤**(每步含文件级改动、代码位置引用、验收标准):\n1. **共享类型**(`packages/shared`):`McpServerConfig`/`McpToolInfo`/`McpServerStatus`\n2. **配置存储**(`config.ts`):`StoredConfig.mcpServers` + 校验 helper(校验失败零写入)\n3. **新工厂** `apps/api/src/pi/mcpTools.ts`:`McpConnection` 抽象(HTTP/SSE 扩展点)+ `StdioMcpConnection`(10s/10s/60s 超时)+ `McpManager`(按 server 缓存连接与工具列表,断线重连一次)+ `createMcpTools()`(`mcp__` 前缀命名、非法名清洗跳过、`Type.Unsafe` schema 透传、50KB 截断、错误脱敏)+ `testMcpServer()`;配套注入式单测 + 真实 stdio 集成测试\n4. **主代理注册**(`piService.ts openSession`):只读工作区不注册;`tools` 白名单同步;`dispose()` + `index.ts` 优雅退出\n5. **子代理注册**(`subAgent.ts`):共享 `McpManager`(子代理每次建会话但闭包只引用 manager,零额外连接);`buildSubAgentTools` 保持同步签名加 `mcpTools` 参数\n6. **API 路由**(`routes.ts`):`GET/PUT/DELETE /api/agent/config/mcp*` + `POST .../test`(一次性连接,不污染缓存)\n7. **前端 UI**:新 `McpPanel.vue` 内嵌进 `ApiKeyModal`(仿 ANYSEARCH section)+ `useAgent` 四个 action\n8. **文档**:README(功能/API 表/安全章节)+ `docs/mcp.md` 设计文档 + AGENTS.md\n9. **全量验证**:typecheck/lint/test/build + 7 项手工冒烟(含宕机 server 不阻塞会话、无子进程残留)\n\n**安全约束**:server 命令只从配置文件读取(agent 无工具可写 config.json,由 workspaceGuard 保证);spawn 不经 shell;只读工作区排除 MCP 工具;风险文档化 + UI 警告;输出视为不可信(50KB 截断)。\n\n**风险与回滚**:SDK v2 误装(锁版本)、TypeBox 转换异常(单工具跳过)、连接泄漏(dispose 全链路)、server 宕机(超时 + 隔离);回滚 = 逐步 revert + 卸载依赖 + 删除配置字段。\n\n**不在范围**:MCP server、HTTP/SSE 传输、OAuth、prompts/resources、每工具级 enable、工具输出沙箱。",
+      "artifact": ".wf-runs/09f3129e/02-plan-1.md",
+      "sessionFile": "sessions/3559367b-f016-4fd5-aec7-87df6c60414f/sub/09f3129e/2026-08-05T04-03-59-912Z_019fd017-ab27-7b34-9a44-094c6dd077c9.jsonl",
+      "ts": 1785902964081
+    },
+    {
+      "callId": "call_00_aRC1y5EpOLE0CeUFHs7B0400",
+      "agent": "planner",
+      "summary": "已更新计划并写入 `.wf-runs/09f3129e/02-plan-2.md`(完整可执行,35865 字节)。\n\n## 摘要\n\n**修订核心(相对 02-plan-1.md)**:按用户驳回意见,「配置存储」改为独立 `mcp.json` 方案,其余步骤保持或同步修正。\n\n**关键变更**:\n\n1. **配置文件方案**:新增 `.workflows/mcp.json`(与 config.json 同目录,经 `path.join(store.root, 'mcp.json')` 定位,沿用 `workflowsRoot` 逻辑);内容 `{ \"mcpServers\": [...] }`;`StoredConfig` 与 `WorkflowsStore` 接口**零改动**,config.ts 唯一改动是 `readJson`/`writeJson` 加 `export`(已验证两函数位于 L73-81,未导出)。\n\n2. **配置读写**:新建独立模块 `apps/api/src/mcpConfig.ts`(McpConfigStore 语义,纯函数风格),**复用** config.ts 的 readJson/writeJson 而非仿写;文件缺失/损坏 → 空列表;先全量校验后落盘(校验失败零写入);原子写用 tmp+renameSync(renameSync 已 import,无新依赖);**并发写与 config.json 同模式——已核实 config.ts 无 mutex/lock(同步 writeFileSync,单线程天然串行),故不引入锁**;单测移至新文件 `mcpConfig.test.ts`,config.test.ts 零改动。\n\n3. **路由与前端**:独立路径 `/api/agent/mcp*`(GET/PUT/DELETE/:name + POST/:name/test),与 config 区段解耦;useAgent.ts 四个 action 与 McpPanel 全部走新路径。\n\n4. **步骤映射**:Step 2 重写;Step 6 更新(独立路径);Step 8 更新(mcp.json 作用/格式示例/安全约束);Step 4/5/9 仅同步修正配置读取点(`loadMcpServers(store)` 替代 `loadConfig().mcpServers`、冒烟文件改为 mcp.json);Step 1/3/7 主体标注「不变」。\n\n5. **安全**:明确「mcp.json 与 config.json 同为 agent 不可写配置文件,由 workspaceGuard 保证」(已核实 workspaceGuard.ts:14 注释「兄弟路径仍拦截」);回滚方案改为「删除 mcp.json 即恢复」。\n\n**计划完整性**:含 0 节变更对照表、9 步文件级改动(含代码骨架、单测用例、验收标准)、安全约束、测试策略、风险与回滚、逐条验收清单、附录索引(基于实测行号修正)。",
+      "artifact": ".wf-runs/09f3129e/02-plan-2.md",
+      "sessionFile": "sessions/3559367b-f016-4fd5-aec7-87df6c60414f/sub/09f3129e/2026-08-05T05-36-49-943Z_019fd06c-a917-7e1e-b288-6110effda83f.jsonl",
+      "ts": 1785908396331
+    },
+    {
+      "callId": "call_00_3XFvDvga6adrg0iP8fCE8396",
+      "agent": "executor",
+      "summary": "执行完成。摘要如下:\n\n## 执行摘要\n\n按 `.wf-runs/09f3129e/02-plan-2.md` 全部 9 步实施完毕,报告见 `.wf-runs/09f3129e/03-execution-1.md`。\n\n**改动文件(19 个)**:\n- 依赖:`@modelcontextprotocol/sdk@^1.30.0`(锁 v1 线)装入 `@workflows/api`\n- 共享类型:`McpServerConfig/McpToolInfo/McpServerStatus` 追加至 `packages/shared`\n- 配置:`config.ts` 仅给 `readJson/writeJson` 加 export;新建 `mcpConfig.ts`(load/save/upsert/remove + 校验失败零写入 + tmp/rename 原子写)+ 27 用例单测\n- 工厂:新建 `pi/mcpTools.ts`(McpConnection 抽象、StdioMcpConnection 10s/10s/60s 超时、McpManager 缓存/断线重连一次、createMcpTools `mcp__` 前缀/Type.Unsafe/50KB 截断/中文脱敏、testMcpServer)+ 39 用例单测(含真实 stdio 集成)\n- 注册:`piService.ts`(loadMcpServers、只读不注册、tools 白名单、dispose、getMcpStatus/disposeMcpServer)、`subAgent.ts`(mcp 参数、buildSubAgentTools mcpTools)、`app.ts`/`index.ts`(SIGINT/SIGTERM 优雅退出)\n- 路由:`routes.ts` 独立 `/api/agent/mcp*` 四端点 + 8 用例单测\n- 前端:`useAgent.ts` 四个 action、`McpPanel.vue`(新)、`ApiKeyModal.vue` 内嵌、5 个新单测\n- 文档:README(功能/数据存储 mcp.json 示例/API 表/安全章节)、`docs/mcp.md`(含独立 mcp.json ADR)、AGENTS.md\n\n**验证**:`pnpm typecheck / lint / build --force` 全绿(0 warning);新增/修改单测全绿(api 新增 82 用例 + web 5 用例);全量 test 仅剩 10 个**基线既有**失败(Windows 路径硬编码测试,已用 git stash 对照确认与本次改动无关);API 级手工冒烟通过(真实 echo MCP server 端到端、400 零写入、独立 mcp.json、SIGINT 无子进程残留);`config.ts` mcpServers 零命中。\n\n**主要偏差**(详见报告 §三):listTools 返回富类型 `McpToolDescriptor`(含 inputSchema,供 schema 转换);全符号工具名经去首尾下划线后为空而跳过;集成测试因 zod peer 依赖改用官方底层 `Server` API;删除一个依赖真实 ModelRuntime 的 config 字段断言测试,改由 grep+typecheck 保证。",
+      "artifact": ".wf-runs/09f3129e/03-execution-1.md",
+      "sessionFile": "sessions/3559367b-f016-4fd5-aec7-87df6c60414f/sub/09f3129e/2026-08-05T05-43-35-119Z_019fd072-d7cf-7f75-b402-7e906a0945c0.jsonl",
+      "ts": 1785909811037
+    },
+    {
+      "callId": "call_00_zNaELuubttVvSJkOwphu3727",
+      "agent": "reviewer",
+      "summary": "审查完成,结论已写入 `.wf-runs/09f3129e/04-review-1.md`。\n\n## 摘要\n\n**结论:pass** ✅\n\n**计划符合度**:9 个步骤全部落实;执行报告声称的偏差(含任务指定的 4 处:McpToolDescriptor 富类型、全符号名跳过、集成测试改底层 Server API、删除 config 字段断言测试)经核对均合理、如实申报、可接受。\n\n**核心验证结果**:\n- 配置独立:StoredConfig/WorkflowsStore 零改动(`config.ts` 仅 readJson/writeJson 加 export)、校验失败零写入、tmp+rename 原子写、`config.test.ts` 零改动,均经代码与测试证实。\n- 生命周期:连接缓存/子代理共享 manager/SIGINT·SIGTERM dispose 全链路无泄漏;10s/10s/60s 超时与断线重连恰一次有精确测试。\n- 工具注册:mcp__ 前缀、Type.Unsafe 透传、50KB 字节安全截断、错误脱敏、只读跳过、tools 白名单双点同步、buildSubAgentTools 无遗漏调用点。\n- 路由/前端:4 端点与计划一致,test 端点一次性连接不污染缓存;McpPanel 内嵌 ApiKeyModal,useAgent 四 action 走新路径。\n- 基线 10 失败:workspaceGuard.test.ts:24 硬编码 Windows 路径为代码证据(无 shell,未能 git stash 独立复验,保留少量不确定性)。\n\n**问题清单(6 项,均非阻塞)**:① routes.ts:99-101 路由归一化绕过存储层 args/enabled 校验(非数组/非布尔静默吞掉);② README/docs「agent 无任何工具可写 mcp.json」声明过度(工作区=仓库根时 .workflows 在工作区内,与 config.json 同局限);③ openSession 串行连接可并行化;④ McpEntry 初始 state 短暂误报 connected;⑤ SIGINT 无兜底超时;⑥ 冒烟 2-6 项待 dev 环境补验。\n\n**最终建议:通过**;建议后续优先处理问题 1-2,3-6 可选。",
+      "artifact": ".wf-runs/09f3129e/04-review-1.md",
+      "sessionFile": "sessions/3559367b-f016-4fd5-aec7-87df6c60414f/sub/09f3129e/2026-08-05T06-03-37-435Z_019fd085-305b-78ce-ba5c-1992fb173d16.jsonl",
+      "ts": 1785910008406
+    }
+  ]
+}

@@ -17,6 +17,7 @@ import {
 import { createWorkspaceBashHook, guardPathTool, guardToolSet, toToolDefinition } from './workspaceGuard.js'
 import { createFffFindTool, createFffGrepTool, FffIndexManager } from './fffTools.js'
 import { createAnySearchTools } from './anySearchTools.js'
+import { McpManager, createMcpTools } from './mcpTools.js'
 import { getAgentDefinitions } from './agentDefs.js'
 import { createPromptOnlyLoader, loadWorkspaceSkills, skillReadRoots, toSkillInfo, type SkillLoadContext } from './promptLoader.js'
 import { runSubAgent, SubAgentError, type SubAgentResult } from './subAgent.js'
@@ -34,6 +35,7 @@ import {
 import type {
   AgentConfig,
   HistoryItem,
+  McpServerStatus,
   RunSnapshot,
   SessionEvent,
   SessionMeta,
@@ -60,6 +62,7 @@ import {
   updateSessionMeta,
   type WorkflowsStore,
 } from '../config.js'
+import { loadMcpServers } from '../mcpConfig.js'
 
 const DEFAULT_MODEL = 'deepseek-v4-flash'
 const ALL_THINKING_LEVELS: ModelThinkingLevel[] = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']
@@ -95,6 +98,8 @@ export class PiAgentService {
   private readonly handles = new Map<string, SessionHandle>()
   /** 每工作区一个 fff 索引(原生 Rust,毫秒级搜索;清理随工作区) */
   private readonly fff = new FffIndexManager()
+  /** MCP server 连接管理器(跨主/子代理共享连接;配置变更时 disposeServer) */
+  private readonly mcp = new McpManager()
   /** 当前 prompt 回合的 SSE 事件回调(子代理工具执行时经此转发 sub_* 事件) */
   private activeEmitter: ((event: SessionEvent) => void) | null = null
 
@@ -264,20 +269,26 @@ export class PiAgentService {
       getApiKey: () => loadConfig(this.store).anySearchApiKey ?? undefined,
     })
     const webToolNames = webTools.map((tool) => tool.name)
+    // MCP 外部工具:只读工作区不注册(MCP 工具可能产生工作区外副作用);
+    // 配置变更需新建会话/重开工作区生效(与 skills 语义一致,README 已有说明)
+    const mcpServers = loadMcpServers(this.store)
+    const mcpTools = workspace.readOnly ? [] : await createMcpTools(this.mcp, mcpServers)
+    const mcpToolNames = mcpTools.map((tool) => tool.name)
     const guardedTools: ToolDefinition[] = workspace.readOnly
-      ? [...nonSearchTools, ...searchTools, ...webTools]
+      ? [...nonSearchTools, ...searchTools, ...webTools, ...mcpTools]
       : [
           ...nonSearchTools,
           ...searchTools,
           ...webTools,
+          ...mcpTools,
           toToolDefinition(createBashTool(workspace.path, { spawnHook: createWorkspaceBashHook(workspace.path) })),
         ]
     // 注意:SDK 的 allowedToolNames(tools 参数)会过滤 customTools 注册表,
-    // 所以 fff 工具与 anysearch-search 必须显式列入;内置 grep/find 不列入即不开放
+    // 所以 fff 工具、anysearch-search 与 mcp__ 工具必须显式列入;内置 grep/find 不列入即不开放
     const searchNames = searchTools.map((tool) => tool.name)
     const activeTools = workspace.readOnly
-      ? ['read', 'ls', ...searchNames, ...webToolNames]
-      : ['read', 'bash', 'edit', 'write', ...searchNames, ...webToolNames]
+      ? ['read', 'ls', ...searchNames, ...webToolNames, ...mcpToolNames]
+      : ['read', 'bash', 'edit', 'write', ...searchNames, ...webToolNames, ...mcpToolNames]
 
     // ---- 工作流编排:主代理 prompt(orchestrator.md)+ 子代理工具 ----
     const agentDefs = getAgentDefinitions(this.store)
@@ -428,6 +439,7 @@ export class PiAgentService {
             store: this.store,
             runtime: this.runtime,
             fff: this.fff,
+            mcp: this.mcp,
             workspace,
             definition: def,
             run,
@@ -805,6 +817,24 @@ export class PiAgentService {
     if (handle?.busy) {
       await handle.session.abort()
     }
+  }
+
+  /* ---------------- MCP 外部工具 ---------------- */
+
+  /** MCP server 运行时状态(前端面板;配置与状态按 name 合并由路由层完成) */
+  getMcpStatus(): McpServerStatus[] {
+    return this.mcp.status()
+  }
+
+  /** 配置变更时断开指定 server 的旧连接(新会话生效);不存在时静默 */
+  async disposeMcpServer(name: string): Promise<void> {
+    await this.mcp.disposeServer(name)
+  }
+
+  /** 服务退出时释放 MCP 子进程与 fff 原生索引 */
+  async dispose(): Promise<void> {
+    await this.mcp.disposeAll()
+    this.fff.disposeAll()
   }
 }
 

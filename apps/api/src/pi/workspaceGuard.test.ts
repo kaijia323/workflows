@@ -21,7 +21,13 @@ import {
   toToolDefinition,
 } from './workspaceGuard.js'
 
-const WS = path.resolve('C:\\Users\\kaijia\\codes\\github\\workflows\\apps\\demo')
+// 平台化:win32 用盘符绝对路径;非 win32 用 POSIX 绝对路径。
+// 原硬编码 Windows 路径在 Linux 下被 path.resolve 解析为 cwd 内的相对路径(反斜杠是普通字符),
+// 导致所有越界判定失准(相对路径一律按工作区内放行)。
+const WS =
+  process.platform === 'win32'
+    ? path.resolve('C:\\Users\\kaijia\\codes\\github\\workflows\\apps\\demo')
+    : '/home/dev/workflows/apps/demo'
 
 describe('isPathWithinWorkspace', () => {
   it('工作区内路径全部放行', () => {
@@ -33,10 +39,15 @@ describe('isPathWithinWorkspace', () => {
   it('工作区外路径全部拦截', () => {
     expect(isPathWithinWorkspace(WS, path.join(WS, '..'))).toBe(false)
     expect(isPathWithinWorkspace(WS, path.join(WS, '..', 'other', 'x.txt'))).toBe(false)
-    expect(isPathWithinWorkspace(WS, 'C:\\Users\\kaijia\\secret.txt')).toBe(false)
+    // 平台化越界路径:win32 盘符绝对路径;非 win32 POSIX 绝对路径
+    // (Windows 反斜杠路径在 Linux 下是相对路径,会被解析进工作区而放行)
+    const outsidePath = process.platform === 'win32' ? 'C:\\Users\\kaijia\\secret.txt' : '/etc/secret.txt'
+    expect(isPathWithinWorkspace(WS, outsidePath)).toBe(false)
   })
 
-  it('Windows 路径大小写不敏感', () => {
+  // 仅 win32 有意义:大小写不敏感是 Windows/NTFS 语义,Linux/macOS 路径本就大小写敏感,
+  // 无等价覆盖(平台化会改变断言语义),故非 win32 直接跳过。
+  it.skipIf(process.platform !== 'win32')('Windows 路径大小写不敏感', () => {
     const lower = WS.toLowerCase()
     expect(isPathWithinWorkspace(lower, WS)).toBe(true)
     expect(isPathWithinWorkspace(WS, lower)).toBe(true)
@@ -139,9 +150,17 @@ describe('auditBashCommand:拦截场景', () => {
   it('绝对路径越界(msys 根 / 盘符 / Windows 路径)', () => {
     expect(auditBashCommand('cat /etc/passwd', WS).length).toBeGreaterThan(0)
     expect(auditBashCommand('cat /proc/cpuinfo', WS).length).toBeGreaterThan(0)
-    expect(auditBashCommand('cat /c/Users/kaijia/secret.txt', WS).length).toBeGreaterThan(0)
-    expect(auditBashCommand('cat C:/Users/kaijia/secret.txt', WS).length).toBeGreaterThan(0)
-    expect(auditBashCommand('cat C:\\Users\\kaijia\\secret.txt', WS).length).toBeGreaterThan(0)
+    if (process.platform === 'win32') {
+      // msys 根(/c/)、盘符(C:/)、Windows 反斜杠路径:win32 专属语义
+      expect(auditBashCommand('cat /c/Users/kaijia/secret.txt', WS).length).toBeGreaterThan(0)
+      expect(auditBashCommand('cat C:/Users/kaijia/secret.txt', WS).length).toBeGreaterThan(0)
+      expect(auditBashCommand('cat C:\\Users\\kaijia\\secret.txt', WS).length).toBeGreaterThan(0)
+    } else {
+      // 非 win32:等价绝对越界路径(盘符路径在 Linux 下是相对路径,不会触发拦截),保持覆盖强度
+      expect(auditBashCommand('cat /etc/hosts', WS).length).toBeGreaterThan(0)
+      expect(auditBashCommand('cat /root/secret.txt', WS).length).toBeGreaterThan(0)
+      expect(auditBashCommand('cat /var/log/syslog', WS).length).toBeGreaterThan(0)
+    }
   })
 
   it('重定向越界', () => {
@@ -258,7 +277,9 @@ describe('guardPathTool', () => {
   it('工作区外路径拦截,原 execute 不执行', async () => {
     const { def, executed } = makeDef()
     guardPathTool(def, WS)
-    await expect(callExecute(def, { path: 'C:\\Users\\kaijia\\secret.txt' })).rejects.toThrow(/工作区边界拦截/)
+    // 平台化越界路径:Linux 下 Windows 反斜杠路径会被当作工作区内相对路径,无法触发拦截
+    const outsidePath = process.platform === 'win32' ? 'C:\\Users\\kaijia\\secret.txt' : '/etc/passwd'
+    await expect(callExecute(def, { path: outsidePath })).rejects.toThrow(/工作区边界拦截/)
     expect(executed).toEqual([])
   })
 
@@ -354,7 +375,10 @@ describe('extraAllowedRoots 只读放行根', () => {
 
   it('bash 不放行回归:放行根不作用于 bash 层,cat 读 skills 仍拦', () => {
     expect(auditBashCommand('cat ~/.agents/skills/grill-me/SKILL.md', WS).length).toBeGreaterThan(0)
-    expect(auditBashCommand('cat C:\\Users\\kaijia\\.agents\\skills\\grill-me\\SKILL.md', WS).length).toBeGreaterThan(0)
+    // 平台化:win32 用盘符反斜杠路径;非 win32 用等价绝对越界路径(验证放行根不作用于 bash 层)
+    const winCmd = 'cat C:\\Users\\kaijia\\.agents\\skills\\grill-me\\SKILL.md'
+    const posixCmd = 'cat /etc/agents/skills/grill-me/SKILL.md'
+    expect(auditBashCommand(process.platform === 'win32' ? winCmd : posixCmd, WS).length).toBeGreaterThan(0)
   })
 })
 
@@ -451,10 +475,11 @@ describe('真实 AgentSession 集成', () => {
       bashDef.execute('id1', { command: 'cat /etc/passwd' }, undefined, undefined, undefined as never),
     ).rejects.toThrow(/工作区边界拦截/)
 
-    // read 越界参数 → 拦截
+    // read 越界参数 → 拦截(平台化越界路径;wsPath 为真实 tmpdir,Linux 需 POSIX 绝对路径)
     const readDef = session.getToolDefinition('read')!
+    const outsidePath = process.platform === 'win32' ? 'C:\\Users\\kaijia\\secret.txt' : '/etc/passwd'
     await expect(
-      readDef.execute('id2', { path: 'C:\\Users\\kaijia\\secret.txt' }, undefined, undefined, undefined as never),
+      readDef.execute('id2', { path: outsidePath }, undefined, undefined, undefined as never),
     ).rejects.toThrow(/工作区边界拦截/)
 
     // read 工作区内相对路径 → 放行
@@ -519,8 +544,10 @@ describe('真实 AgentSession 集成', () => {
     expect(session.getActiveToolNames().sort()).toEqual(['find', 'grep', 'ls', 'read'])
 
     const readDef = session.getToolDefinition('read')!
+    // 平台化越界路径:win32 盘符绝对路径;非 win32 POSIX 绝对路径
+    const outsidePath = process.platform === 'win32' ? 'C:\\Users\\kaijia\\secret.txt' : '/etc/passwd'
     await expect(
-      readDef.execute('id4', { path: 'C:\\Users\\kaijia\\secret.txt' }, undefined, undefined, undefined as never),
+      readDef.execute('id4', { path: outsidePath }, undefined, undefined, undefined as never),
     ).rejects.toThrow(/工作区边界拦截/)
   })
 })

@@ -163,6 +163,51 @@ describe('buildSubAgentTools 子代理工具集(anysearch-search)', () => {
   })
 })
 
+describe('buildSubAgentTools 子代理工具集(mcpTools 注册)', () => {
+  const ROLES = ['explorer', 'planner', 'executor', 'reviewer']
+  const stubFff = { get: () => undefined } as unknown as FffIndexManager
+  const fakeMcpTool = {
+    name: 'mcp__srv__foo',
+    label: 'mcp__srv__foo',
+    description: 'MCP 工具',
+    parameters: { type: 'object' },
+    execute: async () => ({ content: [{ type: 'text' as const, text: 'x' }], details: undefined }),
+  } satisfies ToolDefinition
+
+  it.each(ROLES)('%s:传入 mcpTools 时 tools 与 activeNames 均含该工具名(恰一次)', (role) => {
+    const { dir, workspace } = makeWorkspace()
+    try {
+      const { tools, activeNames } = buildSubAgentTools({
+        workspace,
+        definition: makeDef(role, role === 'executor' ? ['**'] : undefined),
+        fff: stubFff,
+        matcher: undefined,
+        mcpTools: [fakeMcpTool],
+      })
+      expect(activeNames.filter((n) => n === 'mcp__srv__foo')).toHaveLength(1)
+      expect(tools.filter((t) => t.name === 'mcp__srv__foo')).toHaveLength(1)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it.each(ROLES)('%s:缺省 mcpTools 时不包含 mcp 工具(既有行为不变)', (role) => {
+    const { dir, workspace } = makeWorkspace()
+    try {
+      const { tools, activeNames } = buildSubAgentTools({
+        workspace,
+        definition: makeDef(role, role === 'executor' ? ['**'] : undefined),
+        fff: stubFff,
+        matcher: undefined,
+      })
+      expect(activeNames.some((n) => n.startsWith('mcp__'))).toBe(false)
+      expect(tools.some((t) => t.name.startsWith('mcp__'))).toBe(false)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+})
+
 describe('toSubEvents 事件镜像', () => {
   it('toolResult 消息不镜像为 sub_message_start(回归:模态窗空消息光标)', () => {
     const events = toSubEvents('c1', msgEvent('toolResult'))

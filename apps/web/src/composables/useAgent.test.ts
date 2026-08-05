@@ -278,3 +278,93 @@ describe('useAgent 流式渲染', () => {
     expect(last?.status).toBe('error')
   })
 })
+
+describe('useAgent MCP actions(/api/agent/mcp*)', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  /** mcp 专用 fetch stub:GET 列表 / PUT 保存(回写内存列表)/ POST 测试 */
+  function stubMcpApi(initialServers: unknown[], initialStatus: unknown[]) {
+    let servers = initialServers
+    let testCalls = 0
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input)
+        const method = init?.method ?? 'GET'
+        if (url === '/api/agent/mcp' && method === 'GET') {
+          return jsonResponse({ servers, status: initialStatus })
+        }
+        if (url === '/api/agent/mcp/echo' && method === 'PUT') {
+          const body = JSON.parse(String(init?.body)) as { command?: string; enabled?: boolean }
+          servers = [{ name: 'echo', command: body.command, args: [], enabled: body.enabled }]
+          return jsonResponse({ servers, status: initialStatus })
+        }
+        if (url === '/api/agent/mcp/echo/test' && method === 'POST') {
+          testCalls++
+          return jsonResponse({ ok: true, tools: [{ name: 'echo', description: 'echo back' }] })
+        }
+        return { ok: false, json: async () => ({ code: 404, message: 'Not Found', data: null }) }
+      }),
+    )
+    return { getTestCalls: () => testCalls }
+  }
+
+  it('refreshMcp:拉取配置 + 状态列表', async () => {
+    stubMcpApi(
+      [{ name: 'echo', command: 'node', args: [], enabled: true }],
+      [{ name: 'echo', state: 'connected', toolCount: 1, lastCheckedAt: 1 }],
+    )
+    const agent = useAgent()
+    await agent.refreshMcp()
+    expect(agent.mcp.value?.servers).toHaveLength(1)
+    expect(agent.mcp.value?.servers[0]).toMatchObject({ name: 'echo', enabled: true })
+    expect(agent.mcp.value?.status[0]).toMatchObject({ state: 'connected', toolCount: 1 })
+  })
+
+  it('saveMcpServer:PUT /api/agent/mcp/:name 后刷新列表', async () => {
+    stubMcpApi([], [])
+    const agent = useAgent()
+    await agent.saveMcpServer({ name: 'echo', command: 'node', enabled: true })
+    expect(agent.mcp.value?.servers).toHaveLength(1)
+    expect(agent.mcp.value?.servers[0]).toMatchObject({ name: 'echo', command: 'node', enabled: true })
+  })
+
+  it('testMcpServer:POST /api/agent/mcp/:name/test 透传返回', async () => {
+    const stub = stubMcpApi([], [])
+    const agent = useAgent()
+    const result = await agent.testMcpServer('echo')
+    expect(result.ok).toBe(true)
+    expect(result.tools?.map((t) => t.name)).toEqual(['echo'])
+    expect(stub.getTestCalls()).toBe(1)
+  })
+
+  it('deleteMcpServer:DELETE 后刷新列表', async () => {
+    // 简化:DELETE 返回空列表
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input)
+        if (url === '/api/agent/mcp' && (init?.method ?? 'GET') === 'GET') {
+          return jsonResponse({ servers: [], status: [] })
+        }
+        if (url === '/api/agent/mcp/echo' && init?.method === 'DELETE') {
+          return jsonResponse({ servers: [], status: [] })
+        }
+        return { ok: false, json: async () => ({ code: 404, message: 'Not Found', data: null }) }
+      }),
+    )
+    const agent = useAgent()
+    await agent.deleteMcpServer('echo')
+    expect(agent.mcp.value?.servers).toEqual([])
+  })
+
+  it('init() 拉取 mcp 配置(失败静默,不阻塞聊天)', async () => {
+    stubMcpApi([{ name: 'echo', command: 'node', enabled: true }], [])
+    const agent = useAgent()
+    await agent.init()
+    expect(agent.mcp.value?.servers).toHaveLength(1)
+  })
+})
+

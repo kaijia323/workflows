@@ -1,0 +1,29 @@
+{
+  "runId": "a68540af",
+  "sessionId": "76d6d9aa-fbeb-4182-9b44-54f7aadaa8a9",
+  "status": "done",
+  "gate": {
+    "pending": false,
+    "planFile": null
+  },
+  "createdAt": 1785910062084,
+  "updatedAt": 1785910576287,
+  "agents": [
+    {
+      "callId": "call_00_ioJ5NxxAjLWSIaiHpE4c5638",
+      "agent": "executor",
+      "summary": "全部 6 项问题已处理完毕,执行摘要如下:\n\n## 执行摘要\n\n**问题 1(🟡)路由校验绕过 — 修复**\n- `apps/api/src/agent/routes.ts` PUT 处理器(L96-104):`args`/`enabled` 改为透传原始值(`as string[] | undefined` / `as boolean | undefined`),不再静默归一为 undefined,由存储层 `validateMcpServers` 统一拒绝\n- `mcpRoutes.test.ts` 新增 2 用例:「args 非数组」「enabled 非布尔」→ 400 + 零写入(对照既有测试风格)\n- API 级实测:PUT `args:\"foo\"` → 400「args 必须是字符串数组」;PUT `enabled:\"yes\"` → 400「enabled 必须是布尔值」\n\n**问题 2(🟡)文档声明过度 — 修复**\n- README(数据存储条目 + 安全模型)与 docs/mcp.md §6.1 均加限定「仅当工作区不包含 `.workflows` 目录时成立」+ 信任模型说明(agent 与 OS 用户同权限,护栏防误操作而非防恶意,与 config.json 同局限)\n\n**问题 3(🟢)串行连接 — 修复**\n- `mcpTools.ts` `createMcpTools` 改 `Promise.allSettled` 并行构建各 server(单 server 构建抽为 `buildServerTools`,内部捕获 + warn 跳过),失败隔离语义保持;`piService.openSession` 与 `subAgent.runSubAgent` 双调用点同时受益\n\n**问题 4(🟢)ensureEntry 初始态 — 修复(选「新增 connecting 态」)**\n- 共享类型 `McpServerStatus.state` 加 `'connecting'`;`ensureEntry` 初始 `'connected'`→`'connecting'`;`McpPanel.vue` 状态徽标加「连接中…」分支;新增单测(connect 挂起期间 state='connecting',成功后 'connected')\n\n**问题 5(🟢)SIGINT/SIGTERM — 修复**\n- `index.ts`:dispose 挂 5s 兜底计时器,超时 warn + `process.exit(0)`(`timer.unref`),dispose 完成/失败后 clearTimeout + exit(0);SIGINT 优雅退出已实测\n\n**问题 6(🟢)冒烟 2-6 — 尽力补验,如实申报**\n- 无 DeepSeek API key + 无浏览器,LLM 会话级/UI 级冒烟无法执行;已做 API 级实机冒烟(服务启动、400 校验端到端、真实 stdio MCP server 经 `/test` 往返 ok:true、SIGINT 退出、冒烟产物已清理)\n- 覆盖矩阵已写入报告:可见性/子代理共享/只读排除/UI 各项的单测覆盖与待人工补验项,不造假\n\n**验证**:typecheck 3/3 ✅、lint 3/3 ✅、build 3/3 ✅、api 测试 258 passed / 10 failed(与基线完全一致:workspaceGuard×8 + runManager×1 + agentDefs×1,**无新增失败**)、web 测试 34 passed ✅\n\n执行报告已写入 `.wf-runs/a68540af/03-execution-1.md`。",
+      "artifact": ".wf-runs/a68540af/03-execution-1.md",
+      "sessionFile": "sessions/3559367b-f016-4fd5-aec7-87df6c60414f/sub/a68540af/2026-08-05T06-07-42-086Z_019fd088-ec06-7c6d-8efc-35ea574e8dba.jsonl",
+      "ts": 1785910417924
+    },
+    {
+      "callId": "call_00_63U5BGbvENVUcKlNyTmn1071",
+      "agent": "reviewer",
+      "summary": "**结论:pass** ✅(审查报告已写入 `.wf-runs/a68540af/04-review-1.md`)\n\n**6 项逐条核对结果:**\n\n1. **问题 1 — 通过**:routes.ts:96-101 透传原始值(仅类型断言),存储层 validateMcpServers 统一 400 + 零写入;2 个新测试真实有效(断言 400 + 中文文案 + `existsSync` 零写入),既有 8 用例未动;UI 恒发数组/布尔无回归。\n2. **问题 2 — 通过**:README L43/L124-125 与 docs/mcp.md §6.1 均限定「仅当工作区不包含 .workflows 时成立」+ 穿透场景 + 信任模型,表述准确一致。\n3. **问题 3 — 通过**:`Promise.allSettled` + `buildServerTools` 内部捕获,隔离语义保持,flatMap 保序无工具序回归;piService:275 与 subAgent:358-359 双调用点均受益。\n4. **问题 4 — 通过**:共享联合类型、McpPanel「连接中…」徽标、ensureEntry 初始 'connecting' 全链路一致;挂起 promise 实测用例非空壳;status() 各阶段语义正确。\n5. **问题 5 — 通过**:5s 兜底 unref + clearTimeout + 两分支 exit(0),无双重 exit、无计时器泄漏;index.ts 无测试引用。\n6. **问题 6 — 通过**:4 项不可执行项如实申报并标注待人工补验;覆盖矩阵逐项核实(subAgent.test.ts / mcpTools.test.ts / useAgent.test.ts 均实有对应测试)。\n\n**抽查**:258 = 基线 255 + 新增 3,算术与文件证据自洽;10 个失败集合与上轮基线逐项一致且与改动文件无交集;web 34 不变;9 个改动文件均属问题范畴,无夹带、无安全模型削弱。\n\n**备注**:3 条非阻塞打磨项(null 值 400 语义、超时路径 exit code、mcpOverview 沿用 'error' 推导态),不阻塞;typecheck/lint/test 因无 shell 未能独立重跑(与上轮方法一致)。\n\n**最终建议:通过**。",
+      "artifact": ".wf-runs/a68540af/04-review-1.md",
+      "sessionFile": "sessions/3559367b-f016-4fd5-aec7-87df6c60414f/sub/a68540af/2026-08-05T06-13-43-503Z_019fd08e-6fcf-7617-9ff0-807c83c8b8fc.jsonl",
+      "ts": 1785910572032
+    }
+  ]
+}
