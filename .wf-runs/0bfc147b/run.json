@@ -1,0 +1,29 @@
+{
+  "runId": "0bfc147b",
+  "sessionId": "ab087806-e9dd-45d6-a398-2fa6f9014f80",
+  "status": "planning",
+  "gate": {
+    "pending": false,
+    "planFile": null
+  },
+  "createdAt": 1785936734636,
+  "updatedAt": 1785936979161,
+  "agents": [
+    {
+      "callId": "call_00_4DU2NxAgr33h0S7YoKWp2034",
+      "agent": "explorer",
+      "summary": "证据已充分。最后确认 runManager.ts 的 run.json 管理逻辑,并尝试直接读 .git/index 验证跟踪状态:",
+      "artifact": null,
+      "sessionFile": "sessions\\857395d8-e02b-4b8c-9b07-5144bbf849cd\\sub\\0bfc147b\\2026-08-05T13-32-14-639Z_019fd21f-e9af-7f19-bd46-d3079ce2ea2d.jsonl",
+      "ts": 1785936848775
+    },
+    {
+      "callId": "call_00_2RXKd3ePQ1gRFVA4N9Sv3140",
+      "agent": "executor",
+      "summary": "执行完成。\n\n## 执行摘要\n\n**改动文件**\n1. **AGENTS.md** —「关键约定」章节末尾(「API key」条目后)新增:`- **.wf-runs/ 提交入库**:工作流运行产物(01-exploration / 02-plan / 03-execution / 04-review 报告 + run.json)需随代码一起提交入库,不得加入 .gitignore;run 结束后直接 git add .wf-runs/ 提交`(与文档既有中文、加粗条目风格一致;此前无该条目)\n2. **.wf-runs/069478ca/** — 5 个文件(01-exploration-1、03-execution-1/2/3、run.json)随代码入库\n\n**提交记录**(两个独立提交,信息准确)\n- `3024c57` chore: 提交工作流运行记录 .wf-runs(069478ca)\n- `586fe12` docs: AGENTS.md 补充 .wf-runs 工作流产物提交入库约定\n\n**自检**\n- pre-commit 钩子两次提交均通过:lint-staged 不匹配 md(无 eslint --fix 改动)、typecheck 3/3、test api 293 例 + web 53 例全绿\n- 最终 git status:仅剩 `?? .wf-runs/0bfc147b/`——即本次 run 自身的产物目录(含刚写入的执行报告,harness 曾临时删除后又重建,属 run 进行中产物,待 run 结束按新约定提交)\n\n**说明**:任务背景中的 0bfc147b 目录在执行期间被 harness 清理(仅存占位 run.json),故实际提交的产物为 069478ca;中途曾误 amend 提交顺序,已 reset 修复并按正确顺序重提,最终 log 验证无误。",
+      "artifact": ".wf-runs\\0bfc147b\\03-execution-1.md",
+      "sessionFile": "sessions\\857395d8-e02b-4b8c-9b07-5144bbf849cd\\sub\\0bfc147b\\2026-08-05T13-34-42-407Z_019fd222-2ae7-7ff0-a195-dd74bc467a51.jsonl",
+      "ts": 1785936979160
+    }
+  ]
+}
