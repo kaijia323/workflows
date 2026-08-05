@@ -29,7 +29,6 @@ const messages = computed<UiMessage[]>(() => {
   return history.value ?? []
 })
 
-const summary = computed(() => live.value?.summary ?? '')
 const artifact = computed(() => live.value?.artifact ?? null)
 
 onMounted(async () => {
@@ -156,15 +155,8 @@ function toggleTool(msg: UiMessage, callId: string): void {
         </p>
       </div>
 
-      <!-- 底部:摘要 + 产物 -->
+      <!-- 底部:产物 -->
       <div class="shrink-0 border-t border-hairline px-5 py-3">
-        <p
-          v-if="summary"
-          class="text-xs leading-relaxed text-body"
-        >
-          <span class="font-display text-[10px] tracking-[0.2em] text-mute">摘要 </span>
-          {{ summary }}
-        </p>
         <p
           v-if="artifact"
           class="mt-1.5 font-mono text-[10px] text-mute"
