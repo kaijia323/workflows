@@ -2,13 +2,23 @@ import type { Context } from 'hono'
 import type { Hono } from 'hono'
 import { HTTPException } from 'hono/http-exception'
 import { streamSSE } from 'hono/streaming'
+import { randomUUID } from 'node:crypto'
+import { mkdir, readdir, stat, unlink, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import path from 'node:path'
 import type { HistoryItem, McpServerConfig, McpServerStatus, McpToolInfo } from '@workflows/shared'
 import { addWorkspace, getActiveSession, getSession, hasApiKey, listDirectory, loadWorkspaces, removeWorkspace, updateWorkspace, type WorkflowsStore } from '../config.js'
 import { loadMcpServers, removeMcpServer, upsertMcpServer } from '../mcpConfig.js'
+import { extForMime, sniffMime } from '../pi/imageMime.js'
 import { testMcpServer } from '../pi/mcpTools.js'
 import { PiAgentService } from '../pi/piService.js'
+
+/** 上传目录名(点前缀隐藏,与 .wf-runs 同语义;工作区内,天然满足 isAllowedTargetPath) */
+const UPLOADS_DIR = '.wf-uploads'
+/** 单张上限(与工具单图上限一致,后端兜底) */
+const UPLOAD_MAX_BYTES = 10 * 1024 * 1024
+/** 惰性清理阈值:同目录 mtime 早于该时长的文件在上传时删除(防孤儿堆积,决策 7) */
+const UPLOAD_TTL_MS = 30 * 24 * 60 * 60 * 1000
 
 export function registerAgentRoutes(app: Hono, store: WorkflowsStore, pi: PiAgentService): void {
   /* ---------------- 元信息 ---------------- */
@@ -275,6 +285,38 @@ export function registerAgentRoutes(app: Hono, store: WorkflowsStore, pi: PiAgen
     })
   })
 
+  // 图片上传:前端粘贴压缩后的图片(base64)→ 写 <workspace>/.wf-uploads/<uuid>.<ext> → 返回相对路径
+  // (路径随消息文本走,方案 A;文件名服务端 randomUUID 生成,不信任客户端)
+  app.post('/api/agent/workspaces/:id/uploads', async (c) => {
+    const workspace = requireWorkspace(store, c.req.param('id'))
+    // 只读校验先于任何解析/写盘(上传 = 写盘,违反只读语义,决策 2)
+    if (workspace.readOnly) throw new HTTPException(403, { message: '只读工作区不支持上传图片' })
+    const body = await readJson<{ data?: string }>(c)
+    const data = body?.data?.trim()
+    if (!data) throw new HTTPException(400, { message: '缺少图片数据(data)' })
+    // 长度粗判(len*3/4 ≤ 10MB)防超大字符串分配;解码后复检字节数
+    if (data.length * 3 > UPLOAD_MAX_BYTES * 4) {
+      throw new HTTPException(400, { message: `图片数据超过大小上限(${UPLOAD_MAX_BYTES} 字节)` })
+    }
+    const buf = Buffer.from(data, 'base64')
+    if (buf.length > UPLOAD_MAX_BYTES) {
+      throw new HTTPException(400, { message: `图片数据超过大小上限(${UPLOAD_MAX_BYTES} 字节)` })
+    }
+    // 魔数嗅探定 mime(不信客户端声明);扩展名由 mime 决定
+    const mime = sniffMime(buf)
+    const ext = mime ? extForMime(mime) : undefined
+    if (!mime || !ext) {
+      throw new HTTPException(400, { message: '不支持的图片格式(支持 JPEG/PNG/GIF/WebP)' })
+    }
+    const dir = path.join(workspace.path, UPLOADS_DIR)
+    await mkdir(dir, { recursive: true })
+    const fileName = `${randomUUID()}.${ext}`
+    await writeFile(path.join(dir, fileName), buf)
+    // 惰性清理:同目录 mtime 早于 30 天的旧文件删除(每次上传触发,失败不影响本次上传)
+    await cleanupOldUploads(dir)
+    return c.json({ code: 0, message: 'ok', data: { path: `${UPLOADS_DIR}/${fileName}` } })
+  })
+
   app.post('/api/agent/workspaces/:id/abort', async (c) => {
     const id = c.req.param('id')
     requireWorkspace(store, id)
@@ -332,6 +374,32 @@ function requireWorkspace(store: WorkflowsStore, id: string) {
   const workspace = loadWorkspaces(store).find((w) => w.id === id)
   if (!workspace) throw new HTTPException(404, { message: '工作区不存在' })
   return workspace
+}
+
+/**
+ * 惰性清理上传目录:mtime 早于 UPLOAD_TTL_MS(30 天)的文件删除。
+ * 每次上传触发(决策 7:不做独立定时任务);单个文件失败/目录缺失均静默,不阻塞上传。
+ */
+async function cleanupOldUploads(dir: string): Promise<void> {
+  const now = Date.now()
+  try {
+    const entries = await readdir(dir, { withFileTypes: true })
+    await Promise.all(
+      entries
+        .filter((e) => e.isFile())
+        .map(async (e) => {
+          const full = path.join(dir, e.name)
+          try {
+            const st = await stat(full)
+            if (now - st.mtimeMs > UPLOAD_TTL_MS) await unlink(full)
+          } catch {
+            // 单个文件 stat/unlink 失败:跳过
+          }
+        }),
+    )
+  } catch {
+    // 目录不存在等:忽略
+  }
 }
 
 /** 空历史(新建会话时使用) */
