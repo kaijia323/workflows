@@ -1,0 +1,21 @@
+{
+  "runId": "b0f3ab5f",
+  "sessionId": "6e49771a-e9bd-4c5b-b675-4f9d4dfcaca1",
+  "status": "planning",
+  "gate": {
+    "pending": false,
+    "planFile": null
+  },
+  "createdAt": 1785954469649,
+  "updatedAt": 1785954634565,
+  "agents": [
+    {
+      "callId": "call_00_znqqQ8AW8NDPJVuyiXmP4623",
+      "agent": "executor",
+      "summary": "## 执行摘要\n\n**改动文件(6 个,1 个 commit `e1ea725`)**\n- `apps/api/src/agent/routes.ts`:UPLOADS_DIR `.wf-uploads` → `.workflows/uploads`,注释同步(mkdir/清理均跟随常量,无其他硬编码)\n- `.workflows/.gitignore`(新建):单行 `*`;因被根 .gitignore 忽略,`git add -f` 入库\n- `apps/api/src/pi/visionTools.ts`:3 处文档/工具描述同步\n- `apps/web/src/composables/useAgent.ts`:1 处注释同步(前端路径由后端返回,无硬编码,已确认)\n- `apps/web/src/composables/useAgent.test.ts`:5 处 mock 路径同步\n- `apps/api/src/agent/uploadsRoutes.test.ts`:常量 + 3 处正则 + 用例名;临时目录注入点不变\n\n**清理**:`.wf-uploads/`(含冒烟 PNG)已删除\n\n**验证**:typecheck / test(api 370 + web 101 全绿)/ lint / build 全通过;git 可见性冒烟确认 `.workflows/uploads/` 下文件不被追踪\n\n**最终 git status**:仅剩产物目录 `.wf-runs/b0f3ab5f/`(预期 untracked)\n\n报告已写入 `.wf-runs/b0f3ab5f/03-execution-1.md`。",
+      "artifact": ".wf-runs\\b0f3ab5f\\03-execution-1.md",
+      "sessionFile": "sessions\\857395d8-e02b-4b8c-9b07-5144bbf849cd\\sub\\b0f3ab5f\\2026-08-05T18-27-49-662Z_019fd32e-871e-73d7-9caf-b0000a5013e4.jsonl",
+      "ts": 1785954634565
+    }
+  ]
+}
