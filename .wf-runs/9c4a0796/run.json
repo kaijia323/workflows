@@ -1,0 +1,61 @@
+{
+  "runId": "9c4a0796",
+  "sessionId": "f63bd905-f319-49b2-97f5-4373fd30ddb2",
+  "status": "done",
+  "gate": {
+    "pending": false,
+    "planFile": null
+  },
+  "createdAt": 1785922762520,
+  "updatedAt": 1785924921916,
+  "agents": [
+    {
+      "callId": "call_00_iHUBp0AExW53qzlft9OX5387",
+      "agent": "explorer",
+      "summary": "调研完成,报告已写入 `.wf-runs/9c4a0796/01-exploration-1.md`。摘要如下:\n\n## 调研摘要\n\n**1. 项目与 MCP**:`workflows` 是 Turborepo + pnpm monorepo —— Vue 3/Vite 前端(15200)+ Hono + pi SDK 后端(3000),是一个 Web Agent 工作台。**是 MCP client**(stdio 传输),工具以 `mcp__<server>__<tool>` 注册进主/子代理会话。\n\n**2. MCP 配置**:`.workflows/mcp.json`(dev)/ `~/.workflows/mcp.json`(prod),JSON 格式 `{ \"mcpServers\": [...] }`。读写在 `apps/api/src/mcpConfig.ts`(loadMcpServers/upsert/remove,原子写);消费链路:`piService.ts openSession()` 与 `subAgent.ts runSubAgent()` 双点调用 `loadMcpServers` + `createMcpTools`(`mcpTools.ts` 的 McpManager 按 server 缓存连接与工具,主/子代理共享)。\n\n**3. 热更新现状**:全仓库**零** watcher/轮询/debounce。仅有 `node --watch`(dev 源码重启)与 Vite HMR(前端 UI),都与 mcp.json 无关。\n\n**4. 启动**:`pnpm dev` → api `node --watch --import tsx/esm src/index.ts`(3000,内部)+ web `vite`(15200,`/api` 代理到 3000);生产 5200 单端口。\n\n**5. 为何需重启(根因)**:mcp.json 并非启动时读一次——而是**每次会话创建时同步读盘**。真正的问题是三层固化:① SDK `createAgentSession({ customTools })` 在构造时把工具注册表固化为 `_toolDefinitions`(无公开 API 增删 customTools,已核实 dist 源码);② 每个 MCP 工具的 execute 闭包捕获创建时的 server 配置快照(改配置/删 server 后旧会话仍按旧配置重连调用);③ `tools` 白名单同步固化。PUT/DELETE 路由只 `disposeServer`(断连接清缓存),不重建会话工具集 → 新增工具不可见。**子代理每次调用新建会话,天然\"半热\";主代理会话是唯一冷点**。重启/新建会话 = 重新走 openSession 全链路。\n\n**6. 测试/示例**:`mcpConfig.test.ts`、`mcpRoutes.test.ts`、`mcpTools.test.ts`(含真实 stdio)、前端 `McpPanel.test.ts` / `useAgent.test.ts`,设计文档 `docs/mcp.md`,现成配置 `.workflows/mcp.json`(context7)。\n\n**7. 热更新切入点**(报告 §8,可行性高):\n- **A(推荐)**:PUT/DELETE 后对空闲会话执行现有 `reopenIfOpen` 同款重建(dispose + 同 sessionId 重开,JSONL 恢复上下文),即可\"保存即生效\";\n- **B(补充)**:McpManager 配置指纹化,解决旧配置闭包/删除失效问题;\n- **C(可选)**:`fs.watch` mcp.json + debounce,兜底手工编辑场景。\n- 不建议:改 SDK、用 `session.reload()`(customTools 数组不变)、前端自动新建会话(丢上下文)。",
+      "artifact": ".wf-runs/9c4a0796/01-exploration-1.md",
+      "sessionFile": "sessions/3559367b-f016-4fd5-aec7-87df6c60414f/sub/9c4a0796/2026-08-05T09-39-22-523Z_019fd14a-b71b-76f1-8c13-11c1fdb144fc.jsonl",
+      "ts": 1785922958421
+    },
+    {
+      "callId": "call_00_mp4BWPN5zY2f7DlDVdCh9025",
+      "agent": "planner",
+      "summary": "实施计划已写入 `.wf-runs/9c4a0796/02-plan-1.md`。\n\n## 计划摘要\n\n**核心结论**:「保存即生效」可行,无需重启进程。已打开的主代理会话是唯一冷点(工具注册表在 `createAgentSession` 时固化),子代理每次调用重建、天然生效。\n\n**分阶段方案**(标注必须/可选):\n\n- **阶段 1(必须):方案 A 会话重建** — `piService.ts` 新增 `rebuildHandle`(dispose + 同 sessionId 重开,JSONL 恢复上下文;迁移 usage/lastActivityAt;失败自动降级为新建会话,旧 JSONL 保留)+ `refreshMcpForOpenSessions`(空闲立即重建、忙碌挂起 `mcpRebuildPending`、单工作区失败隔离、跳过只读工作区);`prompt()` 入口在 busy 检查**之后**消费挂起重建(绝不打断运行中回合);`routes.ts` PUT/DELETE 在 `disposeMcpServer` 后接入刷新。测试:新增 `mcpRefresh.test.ts`(spy 方案,避免 fff 原生进程)+ mcpRoutes.test.ts 轻量断言。\n- **阶段 2(必须,同批):方案 B 配置指纹化** — `mcpTools.ts`:`McpEntry` 加 fingerprint,`ensureConn`/`listTools` 按指纹校验重连;`createMcpTools` 签名向后兼容扩展 `resolveServer`,工具 execute 改为调用时解析最新配置——修改 command/args 后未重建会话立即用新配置,删除/禁用 server 后旧工具报「已删除或未启用」不再复活。补 A 的忙碌窗口与删除复活两个洞。\n- **阶段 3(可选,本期不做):fs.watch 手工编辑兜底** — 评估结论:不纳入。面板路径已被 A 覆盖,手工编辑低频且 watcher 平台语义复杂;留档了防双重建设计(统一刷新入口 + 指纹去重 + 串行化)。\n- **阶段 4(必须,轻量):前端与文档** — McpPanel.vue 提示改为「保存后立即生效」(去掉「新建会话或重开工作区」)、not_connected 文案微调;docs/mcp.md 生效时机与风险表更新;useAgent.ts 零改动。\n\n**关键风险已覆盖**:忙碌会话不被打断(挂起至下回合)、JSONL 恢复失败走现成降级路径、usage 不清零、单 server 失败隔离、重建失败不阻塞 PUT 响应;各阶段独立 commit 可随时 revert,mcp.json 结构与存储零改动。\n\n**验收**:手动 E2E 清单(含忙碌时保存、删除不复活、坏配置隔离)+ `pnpm test` 全绿 + 未改 SDK/无新依赖/存储零改动。",
+      "artifact": ".wf-runs/9c4a0796/02-plan-1.md",
+      "sessionFile": "sessions/3559367b-f016-4fd5-aec7-87df6c60414f/sub/9c4a0796/2026-08-05T09-42-45-213Z_019fd14d-cedd-7a8c-b6d5-d8c2e6b3ee0b.jsonl",
+      "ts": 1785923261054
+    },
+    {
+      "callId": "call_00_ogOqM3k8mNGxYeSv01fs5116",
+      "agent": "executor",
+      "summary": "## 执行摘要\n\n**阶段 1(方案 A 会话重建)** `a69e801` — piService.ts:`SessionHandle.mcpRebuildPending` 字段、`rebuildHandle`(dispose+同 sessionId 重开+usage 迁移+失败降级新建)、`refreshMcpForOpenSessions`(快照遍历/只读跳过/忙碌挂起/逐 handle 隔离)、`prompt()` 入口 busy 检查后消费挂起标记;routes.ts:PUT/DELETE 在 `disposeMcpServer` 后调用刷新,响应不变。新增 `mcpRefresh.test.ts`(7 用例)、扩展 `mcpRoutes.test.ts`(PUT/DELETE 各调用一次刷新)。\n\n**阶段 2(方案 B 指纹化)** `2807a6b` — mcpTools.ts:导出 `configFingerprint`、`McpEntry.fingerprint`、`ensureConn` 指纹校验重建、`listTools` 缓存加指纹条件、`createMcpTools` 向后兼容扩展 `resolveServer`、execute 调用时解析最新配置(删除/禁用返回「已删除或未启用」不复活);piService.openSession 与 subAgent.runSubAgent 接入 live resolver(readOnly 仍传 [])。扩展 `mcpTools.test.ts`(+6 用例)。\n\n**阶段 4(文案+文档)** `ce13933` — McpPanel.vue 底部提示/saved/not_connected 文案更新,测试同步;docs/mcp.md §2 架构图、§4 生效时机、§8 风险表;README 两行旧文案最小同步。\n\n**自检**:3 个 commit 各自跑通 turbo typecheck + `pnpm test`(api 292 passed/1 skipped、web 53 passed),`pnpm -C apps/api build` 通过,eslint 通过;未改 SDK、未加依赖、mcp.json 存储与 PUT/DELETE 响应结构零改动、useAgent.ts 零改动、阶段 3 未做。\n\n**差异说明(详见报告)**:① prompt() 按「busy 检查先行」实现(计划代码块与要点矛盾,以要点为准);② reopenIfOpen 未复用 rebuildHandle(留注释互指);③ 降级分支按计划不迁移 usage;④ README 超出计划文件清单做 2 行最小同步;⑤ 并发测试 mock 改为按 workspace 确定性区分。报告已写入 `.wf-runs/9c4a0796/03-execution-1.md`。",
+      "artifact": ".wf-runs/9c4a0796/03-execution-1.md",
+      "sessionFile": "sessions/3559367b-f016-4fd5-aec7-87df6c60414f/sub/9c4a0796/2026-08-05T10-02-08-160Z_019fd15f-8da0-7f9f-ad38-c4caad023dce.jsonl",
+      "ts": 1785924535756
+    },
+    {
+      "callId": "call_00_nXgtKUYphSvO0NJyFBUk7927",
+      "agent": "reviewer",
+      "summary": "审查完成,报告已写入 `.wf-runs/9c4a0796/04-review-1.md`。\n\n## 结论摘要:fail(打回执行,最小修复)\n\n**核心实现与计划一致,唯一阻断项是文档残留矛盾。**\n\n### 通过项(全部核对无误)\n- **阶段1**:`rebuildHandle`(dispose → handles.delete → 同 sessionId 重开 → usage/lastActivityAt 迁移 → 失败降级新建)、`refreshMcpForOpenSessions`(快照遍历/只读跳过/忙碌置 `mcpRebuildPending`/逐 handle catch)、`prompt()` 在 busy 检查**之后**消费挂起标记——均与计划要点一致;计划代码块与要点的顺序矛盾按要点实现,出入合理。\n- **阶段2**:`configFingerprint`、`ensureConn` 指纹校验、`listTools` 缓存指纹条件、`createMcpTools` 向后兼容扩展、execute 调用时解析且删除/禁用不 spawn、两个消费点 live resolver(readOnly 传 [])全部就位。\n- **阶段4**:McpPanel 三处文案、测试同步、docs/mcp.md 均与实现一致。\n- **范围控制**:未改 SDK、无新依赖、mcpConfig.ts 零改动、useAgent.ts 零改动、PUT/DELETE 响应结构不变、无 fs.watch。3 个 commit 经 git log 确认存在。\n- **测试**:7+6+1 个新用例,spy 均真实拦截、断言为行为级(非形式化);仅 1 处空洞断言。\n\n### 问题清单\n| # | 级别 | 位置 | 问题 |\n|---|---|---|---|\n| F1 | **P1** | README.md:45 | 旧文案「变更后需新建会话/重开工作区生效(与 skills 一致)」未删,与新文案「保存后立即生效」并存矛盾;执行报告 §3.4 声称已更新,与事实不符 |\n| F2 | P2 | docs/mcp.md §4 | McpEntry 描述缺新增的 `fingerprint` 字段 |\n| F3 | P2 | mcpRefresh.test.ts 降级用例 | 测试名「usage 迁移」与语义不符;usage/lastActivityAt 断言空洞(两 handle 共用默认值,无论是否迁移都通过) |\n| F4 | P2 | mcpTools.ts:341 | env 键序未排序,极端情况下误判指纹变化多一次重连(与计划一致,仅提示) |\n\n**建议**:打回执行做一次最小修复(必删 README.md:45 旧行;可选修 F2/F3),无需重做计划。另说明:本环境无 shell,`pnpm test`/typecheck/build 无法独立复跑,已通过逐行静态核验替代。",
+      "artifact": ".wf-runs/9c4a0796/04-review-1.md",
+      "sessionFile": "sessions/3559367b-f016-4fd5-aec7-87df6c60414f/sub/9c4a0796/2026-08-05T10-09-01-648Z_019fd165-dcd0-7184-8dc4-7c67864dcfc9.jsonl",
+      "ts": 1785924729398
+    },
+    {
+      "callId": "call_00_6eiuzWINsaGqH1WF4V945281",
+      "agent": "executor",
+      "summary": "## 执行摘要\n\n已按审查报告 `.wf-runs/9c4a0796/04-review-1.md` 完成全部修复,commit `616e41e`(独立新 commit):\n\n**F1(P1)**:README.md 删除旧文案「变更后需新建会话/重开工作区生效(与 skills 一致)」,仅保留「保存后立即生效(设置面板)…;手工编辑 mcp.json 需重启进程生效」。\n**F2(P2)**:docs/mcp.md §4 McpEntry 描述补 `fingerprint: 创建连接所用 config 指纹(null=从未连接)`,并顺带修正 state 枚举与实现一致。\n**F3(P2)**:mcpRefresh.test.ts 降级用例改名「…usage 不迁移」,fallbackHandle 改用非默认 usage/lastActivityAt,断言改为显式锁定「降级不迁移」语义(不再空洞)。\n**F4(P2)**:mcpTools.ts `configFingerprint` 的 env 键排序后序列化,避免键序差异误判指纹变化。\n\n**自检**:api 测试 15 文件 292 passed | 1 skipped;web 测试 5 文件 53 passed;typecheck 通过;pre-commit(lint + turbo typecheck/test)全绿。README 无残留旧文案。\n\n执行报告已写入 `.wf-runs/9c4a0796/03-execution-2.md`。",
+      "artifact": ".wf-runs/9c4a0796/03-execution-2.md",
+      "sessionFile": "sessions/3559367b-f016-4fd5-aec7-87df6c60414f/sub/9c4a0796/2026-08-05T10-12-14-220Z_019fd168-cd0c-756b-b097-c9523b2ea736.jsonl",
+      "ts": 1785924815107
+    },
+    {
+      "callId": "call_00_KSinRQ4xJ2HMb2sZWN0Y3837",
+      "agent": "reviewer",
+      "summary": "**结论:pass**\n\n复查完成,报告已写入 `.wf-runs/9c4a0796/04-review-2.md`。\n\n**4 项逐条核对(全部通过)**:\n- **F1**(P1):README.md:45 旧文案已删,新文案「保存后立即生效…手工编辑 mcp.json 需重启进程生效」与 :119 及实现一致;「与 skills 一致」零残留,Skills 区(79 行)语义正确区分,无矛盾。\n- **F2**:docs/mcp.md §4 McpEntry 已补 `fingerprint: 创建连接所用 config 指纹(null=从未连接)`,state 枚举与实现一致。\n- **F3**:降级用例改名「…usage 不迁移」;fallbackHandle 用非默认全零 usage + `lastActivityAt: null`,`not.toEqual(oldHandle.usage)` / `toBeNull()` / `not.toBe(1234)` 三条断言真实锁定「降级不迁移」语义,不再空洞。\n- **F4**:configFingerprint(mcpTools.ts:341-347)env 经 `Object.entries().sort()` 后 fromEntries 序列化,指纹与键序无关;不污染原对象,消费点(375/480)对称比较不受影响。\n\n**commit 与回归核验**:`.git/logs/HEAD` 确认 616e41e 为 ce13933 之上的独立 commit,改动仅限 4 文件;唯一功能改动是 F4 排序,等值语义保持,无新行为;mcpTools.test.ts 无 configFingerprint 直接引用,无破坏面;执行报告自检 api 292 passed | 1 skipped(与基线同数)、web 53 passed、typecheck 通过。\n\n**问题清单**:无阻断项;1 条范围外观察项(O1,P3)——AGENTS.md:22 仍有「配置变更后需新建会话/重开工作区生效」遗留文案,非本轮 F1–F4 范围、非本次 commit 引入,建议下轮顺手同步。\n\n**最终建议:通过**。",
+      "artifact": ".wf-runs/9c4a0796/04-review-2.md",
+      "sessionFile": "sessions/3559367b-f016-4fd5-aec7-87df6c60414f/sub/9c4a0796/2026-08-05T10-13-38-320Z_019fd16a-1590-7c89-a7f2-07ad332abd3c.jsonl",
+      "ts": 1785924914788
+    }
+  ]
+}
