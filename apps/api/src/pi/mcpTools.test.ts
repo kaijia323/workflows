@@ -499,6 +499,113 @@ describe('单 server 失败隔离', () => {
   })
 })
 
+/* ---------------- 10. 方案 B:配置指纹化 + 调用时解析 ---------------- */
+
+describe('方案 B:配置指纹化(连接缓存按指纹校验)', () => {
+  it('指纹变化(仅 command 不同)→ 断开旧连接、按新配置重建,工具列表来自新连接', async () => {
+    const cfgA = serverConfig('srv')
+    const cfgB = serverConfig('srv', { command: 'python' })
+    const fakeA = makeFakeConnection()
+    const fakeB = makeFakeConnection()
+    const create = vi.fn((config: McpServerConfig) => (config.command === 'node' ? fakeA.conn : fakeB.conn))
+    const manager = new McpManager({ create })
+
+    await manager.listTools('srv', cfgA)
+    const tools = await manager.listTools('srv', cfgB)
+
+    expect(fakeA.close).toHaveBeenCalledTimes(1)
+    expect(create).toHaveBeenCalledTimes(2)
+    expect(create).toHaveBeenNthCalledWith(2, cfgB)
+    // 工具列表来自新连接
+    expect(fakeB.listTools).toHaveBeenCalledTimes(1)
+    expect(tools).toEqual([echoDescriptor])
+    expect(manager.getConnection('srv')).toBe(fakeB.conn)
+    expect(manager.status()[0]).toMatchObject({ state: 'connected', toolCount: 1 })
+  })
+
+  it('指纹相同 → 缓存命中,不重连(listTools 直接返回)', async () => {
+    const fake = makeFakeConnection()
+    const manager = makeManager(fake)
+
+    await manager.listTools('srv', serverConfig('srv'))
+    const tools = await manager.listTools('srv', serverConfig('srv'))
+
+    expect(fake.connect).toHaveBeenCalledTimes(1)
+    expect(fake.listTools).toHaveBeenCalledTimes(1)
+    expect(tools).toEqual([echoDescriptor])
+  })
+})
+
+describe('方案 B:调用时解析(live resolver)', () => {
+  it('同一工具两次执行:resolve 返回新配置 → 指纹变化自动按新配置重连(不 spawn 旧命令)', async () => {
+    const cfgA = serverConfig('srv')
+    const cfgB = serverConfig('srv', { command: 'python', args: ['-e', 'y'] })
+    const fakeA = makeFakeConnection()
+    const fakeB = makeFakeConnection()
+    const create = vi.fn((config: McpServerConfig) => (config === cfgA ? fakeA.conn : fakeB.conn))
+    const manager = new McpManager({ create })
+    const resolve = vi.fn().mockReturnValueOnce(cfgA).mockReturnValueOnce(cfgB)
+
+    const [tool] = await createMcpTools(manager, [cfgA], resolve)
+    // 工具名与 schema 仍来自注册时快照(cfgA)
+    expect(tool.name).toBe(`${MCP_TOOL_PREFIX}srv__foo`)
+
+    const r1 = await exec(tool, { a: '1' })
+    expect(r1.text).toBe('ok')
+    const r2 = await exec(tool, { a: '2' })
+    expect(r2.text).toBe('ok')
+
+    expect(resolve).toHaveBeenCalledTimes(2)
+    // 第一次调用用 cfgA,第二次解析到 cfgB → 断开旧连接、按 cfgB 重建
+    expect(create).toHaveBeenCalledTimes(2)
+    expect(create).toHaveBeenNthCalledWith(1, cfgA)
+    expect(create).toHaveBeenNthCalledWith(2, cfgB)
+    expect(fakeA.close).toHaveBeenCalledTimes(1)
+    expect(fakeA.callTool).toHaveBeenCalledTimes(1)
+    expect(fakeB.callTool).toHaveBeenCalledTimes(1)
+  })
+
+  it('resolve 返回 undefined(server 已删除)→ 报「已删除或未启用」,不 spawn 新进程', async () => {
+    const fake = makeFakeConnection()
+    const manager = makeManager(fake)
+    const resolve = vi.fn(() => undefined)
+
+    const [tool] = await createMcpTools(manager, [serverConfig('srv')], resolve)
+    // 注册时已连接一次(拉取工具列表);执行时解析到 undefined → 不再创建任何新连接/调用
+    const connectCalls = fake.connect.mock.calls.length
+    const result = await exec(tool, {})
+
+    expect(result.text).toContain('已删除或未启用')
+    expect(fake.connect).toHaveBeenCalledTimes(connectCalls)
+    expect(fake.callTool).not.toHaveBeenCalled()
+    expect(resolve).toHaveBeenCalledWith('srv')
+  })
+
+  it('resolve 返回 enabled: false → 同样失效(与删除同语义)', async () => {
+    const fake = makeFakeConnection()
+    const manager = makeManager(fake)
+    const resolve = vi.fn(() => serverConfig('srv', { enabled: false }))
+
+    const [tool] = await createMcpTools(manager, [serverConfig('srv')], resolve)
+    const result = await exec(tool, {})
+
+    expect(result.text).toContain('已删除或未启用')
+    expect(fake.callTool).not.toHaveBeenCalled()
+  })
+
+  it('兼容性:不传 resolveServer → 回退注册时快照,行为与现状一致', async () => {
+    const fake = makeFakeConnection()
+    const manager = makeManager(fake)
+
+    const [tool] = await createMcpTools(manager, [serverConfig('srv')])
+    const result = await exec(tool, { a: 'x' })
+
+    expect(result.text).toBe('ok')
+    expect(fake.callTool).toHaveBeenCalledWith('foo', { a: 'x' }, undefined)
+    expect(fake.connect).toHaveBeenCalledTimes(1)
+  })
+})
+
 /* ---------------- 9. 真实 stdio 集成 ---------------- */
 
 /** 最小 stdio MCP server(基于官方 SDK Server + StdioServerTransport,暴露 echo 工具) */

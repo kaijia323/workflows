@@ -328,6 +328,18 @@ export class StdioMcpConnection implements McpConnection {
 
 /* ---------------- McpManager ---------------- */
 
+/**
+ * 连接相关配置指纹(稳定键序 JSON;仅 command/args/env 影响连接)。
+ * 用于 McpManager 连接缓存校验:配置变更(保存后)检测到指纹变化 → 断开旧连接按新配置重建。
+ */
+export function configFingerprint(config: McpServerConfig): string {
+  return JSON.stringify({
+    command: config.command,
+    args: config.args ?? [],
+    env: config.env ?? {},
+  })
+}
+
 export interface McpConnectionFactory {
   create(config: McpServerConfig): McpConnection
 }
@@ -338,6 +350,8 @@ interface McpEntry {
   state: 'connected' | 'connecting' | 'error'
   error?: string
   lastCheckedAt: number | null
+  /** 创建连接时所用 config 的指纹;null = 从未连接 */
+  fingerprint: string | null
 }
 
 /**
@@ -355,7 +369,8 @@ export class McpManager {
   /** 确保连接并返回缓存工具列表(幂等;连接已断则重连);失败记录 error 状态并抛错 */
   async listTools(name: string, config: McpServerConfig): Promise<McpToolDescriptor[]> {
     const entry = this.ensureEntry(name)
-    if (entry.tools) return entry.tools
+    // 指纹一致才命中缓存:配置变更(保存后)指纹变化 → 走下方 ensureConn 断开旧连接重建
+    if (entry.fingerprint === configFingerprint(config) && entry.tools) return entry.tools
     try {
       const conn = await this.ensureConn(entry, config)
       const tools = await conn.listTools()
@@ -453,15 +468,21 @@ export class McpManager {
     let entry = this.entries.get(name)
     if (!entry) {
       // 初始态 connecting:连接建立前 status() 不把未连接 server 误报为 connected
-      entry = { conn: null, tools: null, state: 'connecting', lastCheckedAt: null }
+      entry = { conn: null, tools: null, state: 'connecting', lastCheckedAt: null, fingerprint: null }
       this.entries.set(name, entry)
     }
     return entry
   }
 
   private async ensureConn(entry: McpEntry, config: McpServerConfig): Promise<McpConnection> {
+    const fp = configFingerprint(config)
+    if (entry.conn && entry.fingerprint !== fp) {
+      // 配置已变更:断开旧连接,按新配置重建(closeEntry 同时清 tools 缓存)
+      await this.closeEntry(entry)
+    }
     if (!entry.conn) {
       entry.conn = this.factory.create(config)
+      entry.fingerprint = fp
       await entry.conn.connect()
     }
     return entry.conn
@@ -482,16 +503,28 @@ export class McpManager {
  * 单工具失败不影响同 server 其他工具;单 server 连接失败不影响其他 server(状态由 manager 记录)。
  * 各 server 的 connect/listTools **并行**执行(串行时多个宕机 server 最坏叠加 N×10s),
  * Promise.allSettled 保持单 server 失败隔离语义(该 server 失败不影响其他)。
+ *
+ * resolveServer(可选,向后兼容):工具 execute 调用时经它解析最新配置(方案 B),
+ * 缺省回退到 servers.find 快照,行为与现状一致。
  */
-export async function createMcpTools(manager: McpManager, servers: McpServerConfig[]): Promise<ToolDefinition[]> {
+export async function createMcpTools(
+  manager: McpManager,
+  servers: McpServerConfig[],
+  resolveServer?: (name: string) => McpServerConfig | undefined,
+): Promise<ToolDefinition[]> {
+  const resolve = resolveServer ?? ((name: string) => servers.find((s) => s.name === name))
   const results = await Promise.allSettled(
-    servers.filter((server) => server.enabled === true).map((server) => buildServerTools(manager, server)),
+    servers.filter((server) => server.enabled === true).map((server) => buildServerTools(manager, server, resolve)),
   )
   return results.flatMap((r) => (r.status === 'fulfilled' ? r.value : []))
 }
 
 /** 单个 server 的工具构建:连接/列表失败 → warn 跳过并返回空列表(隔离语义;状态由 manager 记录) */
-async function buildServerTools(manager: McpManager, server: McpServerConfig): Promise<ToolDefinition[]> {
+async function buildServerTools(
+  manager: McpManager,
+  server: McpServerConfig,
+  resolve: (name: string) => McpServerConfig | undefined,
+): Promise<ToolDefinition[]> {
   let descriptors: McpToolDescriptor[]
   try {
     descriptors = await manager.listTools(server.name, server)
@@ -503,7 +536,7 @@ async function buildServerTools(manager: McpManager, server: McpServerConfig): P
   const seen = new Set<string>()
   const tools: ToolDefinition[] = []
   for (const descriptor of descriptors) {
-    const tool = toMcpToolDefinition(manager, server, descriptor)
+    const tool = toMcpToolDefinition(manager, resolve, server, descriptor)
     if (!tool) continue
     if (seen.has(tool.name)) {
       // 同一 server 内重名工具 → 保留首个
@@ -519,6 +552,7 @@ async function buildServerTools(manager: McpManager, server: McpServerConfig): P
 /** 单个 MCP 工具 → ToolDefinition(命名/清洗/schema 透传/execute 包装) */
 function toMcpToolDefinition(
   manager: McpManager,
+  resolve: (name: string) => McpServerConfig | undefined,
   server: McpServerConfig,
   descriptor: McpToolDescriptor,
 ): ToolDefinition | null {
@@ -550,8 +584,14 @@ function toMcpToolDefinition(
     parameters: parameters as ToolDefinition['parameters'],
     async execute(_toolCallId, params, signal, _onUpdate): Promise<AgentToolResult<undefined>> {
       abortIfSignaled(signal)
+      // 方案 B:调用时解析最新配置——已删除/未启用的 server 工具立即失效(不按旧配置复活);
+      // 工具名与参数 schema 仍来自注册时快照(注册表只能由会话重建更新)
+      const current = resolve(server.name)
+      if (!current || current.enabled !== true) {
+        return toolError(`${server.name} 已删除或未启用,工具不可用`)
+      }
       try {
-        const result = await manager.callTool(server.name, server, descriptor.name, params as Record<string, unknown>, signal)
+        const result = await manager.callTool(current.name, current, descriptor.name, params as Record<string, unknown>, signal)
         const text = truncateOutput(renderMcpResult(result))
         return { content: [{ type: 'text', text }], details: undefined }
       } catch (error) {

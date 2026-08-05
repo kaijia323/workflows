@@ -354,9 +354,12 @@ export async function runSubAgent(options: RunSubAgentOptions): Promise<SubAgent
   const matcher = compileWriteMatcher(definition.frontmatter.write)
   // 与主代理共用同一 SkillLoadContext 与放行根(主/子代理 skills 与只读边界一致)
   const skillCtx: SkillLoadContext = { cwd: workspace.path, skillsDir: store.skillsDir }
-  // MCP 外部工具:只读工作区不注册;子代理共享主代理的 McpManager(连接与工具列表缓存复用,零额外连接成本)
+  // MCP 外部工具:只读工作区不注册;子代理共享主代理的 McpManager(连接与工具列表缓存复用,零额外连接成本);
+  // 方案 B:execute 调用时经 live resolver 解析最新配置(与主代理一致,保存即生效兜底)
   const mcpServers = loadMcpServers(store)
-  const mcpTools = workspace.readOnly ? [] : await createMcpTools(mcp, mcpServers)
+  const mcpTools = workspace.readOnly
+    ? []
+    : await createMcpTools(mcp, mcpServers, (name) => loadMcpServers(store).find((s) => s.name === name))
   const { tools, activeNames } = buildSubAgentTools({
     workspace,
     definition,

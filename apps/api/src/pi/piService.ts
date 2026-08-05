@@ -272,9 +272,12 @@ export class PiAgentService {
     })
     const webToolNames = webTools.map((tool) => tool.name)
     // MCP 外部工具:只读工作区不注册(MCP 工具可能产生工作区外副作用);
-    // 配置变更需新建会话/重开工作区生效(与 skills 语义一致,README 已有说明)
+    // 方案 B:工具 execute 调用时经 live resolver 解析最新配置——未重建窗口期内的旧闭包
+    // 也按最新配置连接;已删除/禁用 server 的工具立即失效(不按旧配置复活)
     const mcpServers = loadMcpServers(this.store)
-    const mcpTools = workspace.readOnly ? [] : await createMcpTools(this.mcp, mcpServers)
+    const mcpTools = workspace.readOnly
+      ? []
+      : await createMcpTools(this.mcp, mcpServers, (name) => loadMcpServers(this.store).find((s) => s.name === name))
     const mcpToolNames = mcpTools.map((tool) => tool.name)
     const guardedTools: ToolDefinition[] = workspace.readOnly
       ? [...nonSearchTools, ...searchTools, ...webTools, ...mcpTools]
