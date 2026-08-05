@@ -446,13 +446,18 @@ async function rejectPlan(): Promise<void> {
       <div class="mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-1.5">
         <div class="flex items-center gap-1.5">
           <span class="font-display text-[10px] tracking-[0.2em] text-mute">MODEL</span>
-          <div class="flex gap-px rounded-sm border border-hairline bg-canvas-soft p-px">
+          <div
+            role="group"
+            aria-label="模型选择"
+            class="flex gap-px rounded-sm border border-hairline bg-canvas-soft p-px"
+          >
             <button
               v-for="m in agent.config.value?.models ?? []"
               :key="m.id"
               type="button"
               class="rounded-[3px] px-2 py-1 font-mono text-[10px] transition disabled:opacity-40"
               :class="agent.config.value?.model === m.id ? 'bg-primary/15 text-primary' : 'text-body hover:text-ink'"
+              :aria-pressed="agent.config.value?.model === m.id"
               :disabled="agent.streaming.value"
               @click="agent.switchModel(m.id)"
             >
@@ -463,13 +468,18 @@ async function rejectPlan(): Promise<void> {
 
         <div class="flex items-center gap-1.5">
           <span class="font-display text-[10px] tracking-[0.2em] text-mute">THINK</span>
-          <div class="flex gap-px rounded-sm border border-hairline bg-canvas-soft p-px">
+          <div
+            role="group"
+            aria-label="思考级别"
+            class="flex gap-px rounded-sm border border-hairline bg-canvas-soft p-px"
+          >
             <button
               v-for="level in agent.config.value?.thinkingLevels ?? ['off']"
               :key="level"
               type="button"
               class="rounded-[3px] px-2 py-1 font-mono text-[10px] transition disabled:opacity-40"
               :class="agent.config.value?.thinkingLevel === level ? 'bg-primary/15 text-primary' : 'text-body hover:text-ink'"
+              :aria-pressed="agent.config.value?.thinkingLevel === level"
               :disabled="agent.streaming.value"
               @click="agent.switchThinking(level)"
             >

@@ -30,6 +30,7 @@ interface PaneOptions {
   workspaceId?: string | null
   /** 挂载到 document.body(jsdom 仅在元素已连接时 focus() 才生效,用于焦点断言) */
   attachTo?: boolean
+  config?: { model: string; models: Array<{ id: string }>; thinkingLevel: string; thinkingLevels: string[] }
 }
 
 function mountPane(options: PaneOptions = {}) {
@@ -53,7 +54,7 @@ function mountPane(options: PaneOptions = {}) {
     sessionList: ref(null),
     gateRequest: ref(null),
     hasApiKey: ref(true),
-    config: ref({ model: 'm', models: [], thinkingLevel: 'off', thinkingLevels: [] }),
+    config: ref(options.config ?? { model: 'm', models: [], thinkingLevel: 'off', thinkingLevels: [] }),
     subSessions: new Map(),
     run: ref(null),
     sendMessage,
@@ -66,6 +67,36 @@ function mountPane(options: PaneOptions = {}) {
   })
   return { wrapper, agent, sendMessage, skills, activeWorkspaceId }
 }
+
+describe('ChatPane / 模型与思考级别按压状态', () => {
+  it('MODEL/THINK 按钮 aria-pressed 标记当前激活项;容器带 role=group', async () => {
+    const { wrapper } = mountPane({
+      config: {
+        model: 'deepseek-v4-pro',
+        models: [{ id: 'deepseek-v4-flash' }, { id: 'deepseek-v4-pro' }],
+        thinkingLevel: 'high',
+        thinkingLevels: ['off', 'high', 'max'],
+      },
+    })
+
+    const modelGroup = wrapper.find('[aria-label="模型选择"]')
+    const thinkGroup = wrapper.find('[aria-label="思考级别"]')
+    expect(modelGroup.attributes('role')).toBe('group')
+    expect(thinkGroup.attributes('role')).toBe('group')
+
+    const modelBtns = modelGroup.findAll('button')
+    const thinkBtns = thinkGroup.findAll('button')
+    expect(modelBtns).toHaveLength(2)
+    expect(thinkBtns).toHaveLength(3)
+
+    // 激活项 aria-pressed=true,其余 false
+    expect(modelBtns[0].attributes('aria-pressed')).toBe('false')
+    expect(modelBtns[1].attributes('aria-pressed')).toBe('true')
+    expect(thinkBtns[0].attributes('aria-pressed')).toBe('false')
+    expect(thinkBtns[1].attributes('aria-pressed')).toBe('true')
+    expect(thinkBtns[2].attributes('aria-pressed')).toBe('false')
+  })
+})
 
 describe('ChatPane / skill 搜索下拉', () => {
   it('输入 / 弹出下拉,展示全部 skills 与来源标签', async () => {
