@@ -1,0 +1,45 @@
+{
+  "runId": "3ef66d4c",
+  "sessionId": "f8629397-34f8-42ab-8ffc-93364bb823f3",
+  "status": "done",
+  "gate": {
+    "pending": false,
+    "planFile": null
+  },
+  "createdAt": 1785912867948,
+  "updatedAt": 1785915338902,
+  "agents": [
+    {
+      "callId": "call_00_WEzGTtk93ySPKEvu24gb1798",
+      "agent": "explorer",
+      "summary": "调研完成,报告已写入 `.wf-runs/3ef66d4c/01-exploration-1.md`。\n\n## 摘要\n\n**问题 1:MCP 状态显示异常(「尚未连接」但调用成功)**\n\n- **配置来源**:独立文件 `mcp.json`(dev `.workflows/mcp.json` / prod `~/.workflows/mcp.json`),`loadMcpServers()` 读取,非环境变量。\n- **连接时机**:懒连接——在**会话创建时**(`piService.ts` openSession / `subAgent.ts` 子代理会话)由 `createMcpTools` 触发;配置保存(PUT)只写盘并 `disposeServer` 断开+清缓存,不建立连接。\n- **根因(三层叠加)**:\n  1. `McpManager.status()`(mcpTools.ts ~L452)只遍历 entries 缓存——仅统计「上次 dispose 以来已尝试连接」的 server,GET /api/agent/mcp 是纯读、绝不触发连接;\n  2. `routes.ts` `mcpOverview()`(L69-81)对「已启用但无 manager 条目」的 server 静态推导 `error` 态 + 固定文案「尚未连接…」,这是占位提示而非实时探测;\n  3. 前端 `refreshMcp()` 只在页面 init 与 save/delete 后调用,**模态窗打开不刷新、无轮询**——会话建立后 manager 实际已是 `connected`,面板却停留在旧快照。\n- **调用成功的原因**:新会话建立时已连接注册 `mcp__context7__*`;且 `callTool` 的 `ensureConn` 支持断线自动重连,工具闭包只引用 manager,连接被 dispose 后仍可恢复。\n- **修复建议**:McpPanel 加 `onMounted → refreshMcp()` + 刷新按钮/轮询;后端区分「未尝试」与「连接失败」状态语义(不要推导成 `error`)。\n\n**问题 2:设置模态窗高度超出可视区**\n\n- 文件:`apps/web/src/components/ApiKeyModal.vue`(内层盒子 `w-full max-w-md p-6`,**无 max-height、无 overflow-y**;外层 `fixed inset-0 grid place-items-center`)。\n- **根因**:内容(DeepSeek + AnySearch + MCP 面板)撑高后 `place-items-center` 使盒子上下对称溢出视口;遮罩 fixed 不滚、内层无滚动,顶部(标题/关闭按钮)不可达。\n- **修复建议**:内层加 `max-h-[calc(100vh-2rem)] overflow-y-auto`(方案 A,参照仓库已正确实现的 `SubAgentModal.vue` 的 `max-h-[85vh]` 模式);外层加 `overflow-y-auto p-6` 兜底(方案 B);注意 max-height 与 overflow 必须成对出现。\n\n**结论**:两个问题根因清晰、修复均为低成本前端改动(各约 1-2 行 class 或一个 onMounted 钩子),不涉及架构调整。",
+      "artifact": ".wf-runs/3ef66d4c/01-exploration-1.md",
+      "sessionFile": "sessions/3559367b-f016-4fd5-aec7-87df6c60414f/sub/3ef66d4c/2026-08-05T06-54-27-957Z_019fd0b3-bc75-7d47-9c09-52710b51ed1a.jsonl",
+      "ts": 1785912981088
+    },
+    {
+      "callId": "call_00_B4T5ZH8Q6oIsbhnzhgzd2076",
+      "agent": "planner",
+      "summary": "计划已写入 `.wf-runs/3ef66d4c/02-plan-1.md`。摘要如下:\n\n## 修复 1:MCP 状态显示(4 个文件)\n\n**前端(主修复)** — `apps/web/src/components/McpPanel.vue`:\n- `onMounted` 时调用 `refreshMcp()`(模态窗打开即拉最新状态,失败静默,与 init 一致)\n- 标题行加「刷新」按钮(复用现有小按钮样式,防重复点击)\n- `statusLabel`/`statusClass` 增加 `not_connected` 分支:渲染「未连接 · 新建会话后自动连接」中性灰文案\n\n**后端(语义修正)**:\n- `packages/shared/src/index.ts`:`McpServerStatus.state` 联合类型增加 `'not_connected'`(已排查:mcpTools.ts 内部是独立子集类型,兼容;前端 switch 有 default 兜底,无其他消费方)\n- `apps/api/src/agent/routes.ts`:`mcpOverview()` 推导分支把 enabled 未连接 server 从 `error` 态(红色「异常:尚未连接…」)改为 `not_connected` + `error: undefined`;真正的连接失败仍走 manager 的 error 态\n- `apps/api/src/agent/mcpRoutes.test.ts`:加强「PUT 新增」用例断言 `state: 'not_connected'`\n\n**不做**:轮询、GET 触发连接、改动 McpManager 状态机与连接生命周期。\n\n## 修复 2:模态窗高度(1 个文件)\n\n`apps/web/src/components/ApiKeyModal.vue`(仅模板 class,零逻辑):\n- 内层:`max-h-[85vh] overflow-y-auto`(与 SubAgentModal 模式一致,max-h 与 overflow 成对)\n- 外层:`overflow-y-auto p-6` 兜底\n\n## 验证\n\n- 自动化:`pnpm --filter @workflows/{api,web} typecheck && lint && test`\n- 手动:新增 server 显示中性「未连接」→ 发会话后重开模态窗自动显示「已连接」;假命令 server 显示红色「异常」;~700px 视口下模态窗不溢出、顶部可达\n\n## 风险\n\n低。类型扩展已全仓排查;无测试断言旧文案;改动均局部可单独回滚。可选新增两个组件测试(McpPanel 刷新行为 / ApiKeyModal class 契约),不强制。",
+      "artifact": ".wf-runs/3ef66d4c/02-plan-1.md",
+      "sessionFile": "sessions/3559367b-f016-4fd5-aec7-87df6c60414f/sub/3ef66d4c/2026-08-05T06-56-26-420Z_019fd0b5-8b34-72d2-a6e6-924b1ec0cbe3.jsonl",
+      "ts": 1785913077211
+    },
+    {
+      "callId": "call_00_foRE3g3fqCtykn4QW2H19828",
+      "agent": "executor",
+      "summary": "## 执行摘要\n\n按计划完成全部 5 处改动(修复 1 × 4 文件 + 修复 2 × 1 文件),未扩大范围:\n\n- **McpPanel.vue**:onMounted 静默刷新 + 标题行「刷新」按钮(防重复点击)+ `not_connected` 中性灰文案「未连接 · 新建会话后自动连接」\n- **packages/shared/src/index.ts**:`McpServerStatus.state` 联合类型增加 `'not_connected'`\n- **routes.ts**:`mcpOverview()` 推导分支 enabled 未连接 server 由 error 态改为 `not_connected` + `error: undefined`;真正连接失败仍走 manager error 态\n- **mcpRoutes.test.ts**:「PUT 新增」用例断言 `state: 'not_connected'`、`toolCount: 0`、`error` undefined(并放宽本地类型注解)\n- **ApiKeyModal.vue**:仅模板 class——内层 `max-h-[85vh] overflow-y-auto`、外层 `overflow-y-auto p-6`\n\n**自检**:api typecheck / lint / test(267 passed,1 skipped)全绿;web typecheck(vue-tsc)/ lint / test(34 passed)全绿。过程中修复两个连锁问题:shared 包 dist 过期(重建 gitignored 产物)、测试文件类型注解过窄。`git status` 确认无计划外改动。\n\n执行报告已写入 `.wf-runs/3ef66d4c/03-execution-1.md`。",
+      "artifact": ".wf-runs/3ef66d4c/03-execution-1.md",
+      "sessionFile": "sessions/3559367b-f016-4fd5-aec7-87df6c60414f/sub/3ef66d4c/2026-08-05T07-33-11-072Z_019fd0d7-2f20-72c5-92da-0ebe033e19e4.jsonl",
+      "ts": 1785915255148
+    },
+    {
+      "callId": "call_00_g3USdpIQ7YHeRh8zOSkg0762",
+      "agent": "reviewer",
+      "summary": "审查完成,结论已写入 `.wf-runs/3ef66d4c/04-review-1.md`。\n\n## 结论摘要:**pass**\n\n**逐项核对(5 项全部通过):**\n1. **McpPanel.vue** ✅ — onMounted 静默刷新(App.vue L65 `v-if=\"showSettings\"` 保证每次开面板都重新 mount 触发)、刷新按钮防重复点击(`refreshing` 互斥 + finally 复位)、`not_connected` →「未连接 · 新建会话后自动连接」+ `text-mute` 中性灰\n2. **shared 类型** ✅ — `state` 联合含 `'not_connected'`;全仓消费方排查:routes.ts(改)/mcpTools.ts(`McpEntry.state` 为子集,兼容)/piService.ts/useAgent.ts(仅透传)/McpPanel.vue(改),DagPanel 是独立类型,无遗漏\n3. **routes.ts** ✅ — enabled 未连接推导 `not_connected` + `error: undefined`,disabled 仍为 disabled,manager 记录(含真实 error)原样透传,误导文案已清除\n4. **mcpRoutes.test.ts** ✅ — PUT 用例断言 `state: 'not_connected'` + `error` undefined,与实现一致;本地类型注解放宽已说明\n5. **ApiKeyModal.vue** ✅ — 内层 `max-h-[85vh] overflow-y-auto` 成对,外层 `overflow-y-auto p-6` 兜底,`@click.self` 关闭不受影响,零逻辑改动\n\n**范围**:仅 5 个源码文件,无计划外改动;未触碰 mcpTools/piService/subAgent/useAgent/App.vue/SubAgentModal。\n\n**非阻断观察**(不构成打回):① handleRefresh 清空共享 error 提示、onMounted 与按钮刷新可并发(GET 幂等无害,计划原文行为);② 刷新按钮在滚动盒内非常驻(计划明确的最小改动);③ 手动验证场景未在执行报告体现,建议 dev 环境补验。\n\n**建议:通过,可合入。**",
+      "artifact": ".wf-runs/3ef66d4c/04-review-1.md",
+      "sessionFile": "sessions/3559367b-f016-4fd5-aec7-87df6c60414f/sub/3ef66d4c/2026-08-05T07-34-19-187Z_019fd0d8-3933-7255-bf97-511eb30b91be.jsonl",
+      "ts": 1785915335148
+    }
+  ]
+}
