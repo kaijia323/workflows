@@ -11,7 +11,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ToolDefinition } from '@earendil-works/pi-coding-agent'
-import { createVisionTools, isBlockedIp, VISION_TOOL_NAME } from './visionTools.js'
+import { createVisionTools, VISION_TOOL_NAME } from './visionTools.js'
 
 /** 1×1 PNG(70 字节,合法 PNG 签名 + IHDR) */
 const PNG_1X1_BASE64 =
@@ -24,9 +24,6 @@ const JPEG_BYTES = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x1
 const WEBP_BYTES = Buffer.concat([Buffer.from('RIFF'), Buffer.from([0, 0, 0, 0]), Buffer.from('WEBP'), Buffer.from('vp8-payload')])
 /** 无法识别魔数的随机字节 */
 const GARBAGE_BASE64 = Buffer.from('this is definitely not an image').toString('base64')
-
-/** 公网 IP 解析 stub(测试注入 lookupImpl,零真实 DNS) */
-const LOOKUP_PUBLIC = async () => ['93.184.216.34']
 
 /** 下载 mock:非 chat/completions 请求按图片响应,主请求按 okBody */
 function makeDownloadMock() {
@@ -652,12 +649,12 @@ describe('vision-understand v1.1 image_data(base64)', () => {
   })
 })
 
-describe('vision-understand v1.1 image_urls(SSRF 防护)', () => {
+describe('vision-understand v1.1 image_urls(https 下载)', () => {
   it('https + 白名单 mime:下载成功,请求体为 data URL(不直传 URL)', async () => {
     const { dir } = makeWorkspace()
     try {
       const { fetchImpl, calls } = makeDownloadMock()
-      const tool = createVisionTools({ workspacePath: dir, fetchImpl, getApiKey: () => 'sk', lookupImpl: LOOKUP_PUBLIC })[0]
+      const tool = createVisionTools({ workspacePath: dir, fetchImpl, getApiKey: () => 'sk' })[0]
       await exec(tool, { image_urls: ['https://cdn.example.com/pic.jpg'], question: '这是什么' })
       // 第一次调用 = 下载(带 signal/redirect),第二次 = 小米主请求
       expect(calls).toHaveLength(2)
@@ -675,43 +672,11 @@ describe('vision-understand v1.1 image_urls(SSRF 防护)', () => {
     const { dir } = makeWorkspace()
     try {
       const { fetchImpl, calls } = makeFetchMock(() => jsonResponse(okBody))
-      const lookup = vi.fn(LOOKUP_PUBLIC)
       const result = await exec(
-        createVisionTools({ workspacePath: dir, fetchImpl, getApiKey: () => 'sk', lookupImpl: lookup })[0],
+        createVisionTools({ workspacePath: dir, fetchImpl, getApiKey: () => 'sk' })[0],
         { image_urls: ['http://example.com/a.png'] },
       )
       expect(result.text).toBe('Vision 错误:仅支持 https 图片 URL,收到「http」')
-      expect(lookup).not.toHaveBeenCalled()
-      expect(calls).toHaveLength(0)
-    } finally {
-      rmSync(dir, { recursive: true, force: true })
-    }
-  })
-
-  it('dns.lookup 解析到内网 IP → 拒绝且零下载请求', async () => {
-    const { dir } = makeWorkspace()
-    try {
-      const { fetchImpl, calls } = makeFetchMock(() => jsonResponse(okBody))
-      const result = await exec(
-        createVisionTools({ workspacePath: dir, fetchImpl, getApiKey: () => 'sk', lookupImpl: async () => ['10.1.2.3'] })[0],
-        { image_urls: ['https://internal.example.com/pic.png'] },
-      )
-      expect(result.text).toBe('Vision 错误:图片目标地址被拒绝(解析到内网/保留地址)')
-      expect(calls).toHaveLength(0)
-    } finally {
-      rmSync(dir, { recursive: true, force: true })
-    }
-  })
-
-  it('域名解析失败 → 明确错误(零下载请求)', async () => {
-    const { dir } = makeWorkspace()
-    try {
-      const { fetchImpl, calls } = makeFetchMock(() => jsonResponse(okBody))
-      const result = await exec(
-        createVisionTools({ workspacePath: dir, fetchImpl, getApiKey: () => 'sk', lookupImpl: async () => { throw new Error('ENOTFOUND') } })[0],
-        { image_urls: ['https://nope.invalid/pic.png'] },
-      )
-      expect(result.text).toBe('Vision 错误:图片域名解析失败:nope.invalid')
       expect(calls).toHaveLength(0)
     } finally {
       rmSync(dir, { recursive: true, force: true })
@@ -733,7 +698,6 @@ describe('vision-understand v1.1 image_urls(SSRF 防护)', () => {
         workspacePath: dir,
         fetchImpl,
         getApiKey: () => 'sk',
-        lookupImpl: LOOKUP_PUBLIC,
         downloadTimeoutMs: 50,
       })[0]
       const result = await exec(tool, { image_urls: ['https://slow.example.com/pic.png'] })
@@ -757,7 +721,6 @@ describe('vision-understand v1.1 image_urls(SSRF 防护)', () => {
         workspacePath: dir,
         fetchImpl,
         getApiKey: () => 'sk',
-        lookupImpl: LOOKUP_PUBLIC,
         maxImageBytes: 10,
       })[0]
       const result = await exec(tool, { image_urls: ['https://big.example.com/pic.jpg'] })
@@ -777,7 +740,7 @@ describe('vision-understand v1.1 image_urls(SSRF 防护)', () => {
           ? jsonResponse(okBody)
           : new Response('<html>page</html>', { headers: { 'content-type': 'text/html' } }),
       )
-      const tool = createVisionTools({ workspacePath: dir, fetchImpl, getApiKey: () => 'sk', lookupImpl: LOOKUP_PUBLIC })[0]
+      const tool = createVisionTools({ workspacePath: dir, fetchImpl, getApiKey: () => 'sk' })[0]
       const result = await exec(tool, { image_urls: ['https://web.example.com/page'] })
       expect(result.text).toBe('Vision 错误:不支持的图片格式:text/html(支持的格式:JPEG/PNG/GIF/WebP)')
       expect(calls).toHaveLength(1)
@@ -795,34 +758,11 @@ describe('vision-understand v1.1 image_urls(SSRF 防护)', () => {
           ? jsonResponse(okBody)
           : new Response(Buffer.from('not really an image'), { headers: { 'content-type': 'image/png' } }),
       )
-      const tool = createVisionTools({ workspacePath: dir, fetchImpl, getApiKey: () => 'sk', lookupImpl: LOOKUP_PUBLIC })[0]
+      const tool = createVisionTools({ workspacePath: dir, fetchImpl, getApiKey: () => 'sk' })[0]
       const result = await exec(tool, { image_urls: ['https://fake.example.com/pic.png'] })
       expect(result.text).toBe('Vision 错误:无法识别图片格式(下载内容非 JPEG/PNG/GIF/WebP)')
     } finally {
       rmSync(dir, { recursive: true, force: true })
-    }
-  })
-
-  it('isBlockedIp 纯函数:内网/保留地址命中,公网 IP 放行', () => {
-    const blocked = [
-      '127.0.0.1', '127.255.255.255',
-      '10.0.0.1', '10.255.255.255',
-      '172.16.0.1', '172.31.255.255',
-      '192.168.1.1', '192.168.255.255',
-      '169.254.0.1',
-      '0.0.0.0',
-      '::1',
-      'fc00::1', 'fd12:3456:789a::1',
-      'fe80::1', 'febf::1',
-      '::ffff:127.0.0.1',
-      'garbage-not-an-ip',
-    ]
-    for (const ip of blocked) {
-      expect(isBlockedIp(ip), ip).toBe(true)
-    }
-    const allowed = ['8.8.8.8', '93.184.216.34', '1.2.3.4', '2606:2800:220:1:248:1893:25c8:1946', '2001:4860:4860::8888']
-    for (const ip of allowed) {
-      expect(isBlockedIp(ip), ip).toBe(false)
     }
   })
 })
@@ -832,7 +772,7 @@ describe('vision-understand v1.1 混合三路', () => {
     const { dir } = makeMultiWorkspace()
     try {
       const { fetchImpl, calls } = makeDownloadMock()
-      const tool = createVisionTools({ workspacePath: dir, fetchImpl, getApiKey: () => 'sk', lookupImpl: LOOKUP_PUBLIC })[0]
+      const tool = createVisionTools({ workspacePath: dir, fetchImpl, getApiKey: () => 'sk' })[0]
       await exec(tool, {
         image_paths: ['docs/a.png'],
         image_data: [`data:image/png;base64,${PNG_1X1_BASE64}`],

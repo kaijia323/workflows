@@ -19,8 +19,8 @@
  *   1. image_paths[](工作区相对路径,沿用 v1 守卫 isAllowedTargetPath,推荐本机图片;
  *      工作区 .wf-uploads/ 下的上传图片亦在此列)
  *   2. image_data[](data URL 或裸 base64;mime 白名单 / 魔数嗅探 + 单张 ≤10MB)
- *   3. image_urls[](https URL;SSRF 防护:协议白名单 + DNS 解析后 IP 黑名单 + 10s 超时 +
- *      流式限流 + Content-Type/魔数双校验;下载结果转 data URL 进请求体,不直传 URL 给小米)
+ *   3. image_urls[](https URL;协议白名单(仅 https)+ 10s 超时 + 流式限流 +
+ *      Content-Type/魔数双校验;下载结果转 data URL 进请求体,不直传 URL 给小米)
  * - image_path(单数)保留为兼容别名(deprecated,归一化进 image_paths)
  * - 限制:单张 ≤ 10MB、总量 ≤ 20MB(默认)、≤ 8 张、超时 60s(与 MCP call 同级)、
  *   输出 50KB 截断(复用 anySearchTools 导出的 truncateOutput)、mime 白名单 jpeg/png/gif/webp、
@@ -30,7 +30,6 @@
  */
 
 import { readFile, stat } from 'node:fs/promises'
-import { lookup as dnsLookup } from 'node:dns/promises'
 import path from 'node:path'
 import { Type, type Static } from 'typebox'
 import type { AgentToolResult, ToolDefinition } from '@earendil-works/pi-coding-agent'
@@ -71,8 +70,6 @@ export interface VisionToolOptions {
   maxImageBytes?: number
   /** 测试注入用,默认 20MB(多图总量上限) */
   maxTotalBytes?: number
-  /** 测试注入用,默认 node:dns/promises lookup(hostname → IP 列表) */
-  lookupImpl?: (hostname: string) => Promise<string[]>
 }
 
 const visionSchema = Type.Object({
@@ -96,7 +93,7 @@ const visionSchema = Type.Object({
   image_urls: Type.Optional(
     Type.Array(Type.String(), {
       maxItems: MAX_IMAGES,
-      description: '图片 URL 数组(仅 https;内网/保留地址拒绝,SSRF 防护):下载后转 data URL 识别',
+      description: '图片 URL 数组(仅 https):下载后转 data URL 识别',
     }),
   ),
   question: Type.Optional(
@@ -192,119 +189,15 @@ function decodeImageData(raw: string, maxBytes: number): CollectedImage {
   return { mime, base64: buf.toString('base64') }
 }
 
-/* ---------------- IP 黑名单(SSRF) ---------------- */
-
-function ipv4ToInt(ip: string): number | null {
-  const parts = ip.split('.')
-  if (parts.length !== 4) return null
-  let n = 0
-  for (const p of parts) {
-    if (!/^\d{1,3}$/.test(p)) return null
-    const v = Number(p)
-    if (v > 255) return null
-    n = (n << 8) | v
-  }
-  return n >>> 0
-}
-
-/** IPv6 → 16 字节(支持 :: 压缩与末尾内嵌 IPv4);无法解析返回 null */
-function ipv6ToBytes(ip: string): number[] | null {
-  let s = ip
-  const v4 = /(\d+\.\d+\.\d+\.\d+)$/.exec(s)
-  let v4Bytes: number[] = []
-  if (v4) {
-    const parts = v4[1].split('.').map(Number)
-    if (parts.some((v) => Number.isNaN(v) || v > 255)) return null
-    v4Bytes = parts
-    s = s.slice(0, v4.index) + ':'
-  }
-  const doubleColon = s.indexOf('::')
-  let head: string[]
-  let tail: string[]
-  if (doubleColon >= 0) {
-    head = s.slice(0, doubleColon).split(':').filter(Boolean)
-    tail = s.slice(doubleColon + 2).split(':').filter(Boolean)
-  } else {
-    head = s.split(':').filter(Boolean)
-    tail = []
-  }
-  const toBytes = (groups: string[]): number[] => {
-    const out: number[] = []
-    for (const g of groups) {
-      if (!/^[0-9a-fA-F]{1,4}$/.test(g)) return []
-      const v = parseInt(g, 16)
-      out.push((v >> 8) & 0xff, v & 0xff)
-    }
-    return out
-  }
-  const headBytes = toBytes(head)
-  const tailBytes = toBytes(tail)
-  if (headBytes.length === 0 && head.length > 0) return null
-  if (tailBytes.length === 0 && tail.length > 0) return null
-  const total = headBytes.length + tailBytes.length + v4Bytes.length
-  if (doubleColon < 0 && total !== 16) return null
-  if (total > 16) return null
-  const out = new Array<number>(16).fill(0)
-  headBytes.forEach((b, i) => {
-    out[i] = b
-  })
-  const mergedTail = [...tailBytes, ...v4Bytes]
-  mergedTail.forEach((b, i) => {
-    out[16 - mergedTail.length + i] = b
-  })
-  return out
-}
-
-/**
- * 内网/保留地址黑名单(SSRF 防护核心;纯函数,零网络,可直测):
- * IPv4:127.0.0.0/8、10.0.0.0/8、172.16.0.0/12、192.168.0.0/16、169.254.0.0/16、0.0.0.0/8
- * IPv6:::1、fc00::/7(ULA)、fe80::/10(link-local)
- * 无法解析的 IP 一律按命中处理(无法证明安全 → 拒绝,与 workspaceGuard 同哲学)。
- */
-export function isBlockedIp(ip: string): boolean {
-  const v4 = ipv4ToInt(ip)
-  if (v4 !== null) {
-    // 位运算结果是 int32(高位为 1 时负数),掩码后必须 >>> 0 转回无符号再与网段常量比较
-    if (((v4 & 0xff000000) >>> 0) === 0x7f000000) return true // 127.0.0.0/8
-    if (((v4 & 0xff000000) >>> 0) === 0x0a000000) return true // 10.0.0.0/8
-    if (((v4 & 0xfff00000) >>> 0) === 0xac100000) return true // 172.16.0.0/12
-    if (((v4 & 0xffff0000) >>> 0) === 0xc0a80000) return true // 192.168.0.0/16
-    if (((v4 & 0xffff0000) >>> 0) === 0xa9fe0000) return true // 169.254.0.0/16
-    if (((v4 & 0xff000000) >>> 0) === 0x00000000) return true // 0.0.0.0/8
-    return false
-  }
-  const bytes = ipv6ToBytes(ip)
-  if (!bytes) return true
-  // IPv4-mapped IPv6(::ffff:a.b.c.d):取末 4 字节按 IPv4 判定(防绕过)
-  if (
-    bytes.slice(0, 10).every((b) => b === 0) &&
-    bytes[10] === 0xff &&
-    bytes[11] === 0xff
-  ) {
-    return isBlockedIp(`${bytes[12]}.${bytes[13]}.${bytes[14]}.${bytes[15]}`)
-  }
-  if (bytes.slice(0, 15).every((b) => b === 0) && bytes[15] === 1) return true // ::1
-  if ((bytes[0] & 0xfe) === 0xfc) return true // fc00::/7
-  if (bytes[0] === 0xfe && (bytes[1] & 0xc0) === 0x80) return true // fe80::/10
-  return false
-}
-
-/** 默认 DNS 解析(hostname → IP 列表;all:true 返回全部 A/AAAA) */
-async function defaultLookup(hostname: string): Promise<string[]> {
-  const result = await dnsLookup(hostname, { all: true })
-  return result.map((r) => r.address)
-}
-
-/* ---------------- image_urls 下载(SSRF 防护) ---------------- */
+/* ---------------- image_urls 下载 ---------------- */
 
 /**
  * 下载 https 图片并转 data URL(不直传 URL 给小米):
  * - 协议白名单:仅 https(http/file/data 拒绝)
- * - DNS 校验:解析后任一 IP 命中 isBlockedIp 即拒绝(不发起连接)
- * - 下载:10s 超时 + 调用方 abort 信号;redirect follow(残余 DNS rebinding 窗口接受,
- *   与 workspaceGuard「符号链接不解析」同级信任取舍——护栏,非安全边界)
+ * - 下载:10s 超时 + 调用方 abort 信号;redirect follow
  * - 流式读 body:累计 > maxImageBytes 即 abort,禁止整包读入
  * - 响应校验:Content-Type 白名单 + 魔数嗅探
+ * (不做 DNS 解析与内网 IP 拦截:小米模型访问不了自然会报错,无需 SSRF 黑名单)
  */
 async function downloadImageUrl(
   url: string,
@@ -312,7 +205,6 @@ async function downloadImageUrl(
     maxImageBytes: number
     downloadTimeoutMs: number
     fetchImpl: typeof fetch
-    lookupImpl: (hostname: string) => Promise<string[]>
     signal?: AbortSignal
   },
 ): Promise<CollectedImage> {
@@ -324,17 +216,6 @@ async function downloadImageUrl(
   }
   if (parsed.protocol !== 'https:') {
     throw new Error(`仅支持 https 图片 URL,收到「${parsed.protocol.replace(':', '')}」`)
-  }
-
-  // DNS 校验:任一 IP 命中黑名单即拒绝,不发起连接
-  let addresses: string[]
-  try {
-    addresses = await opts.lookupImpl(parsed.hostname)
-  } catch {
-    throw new Error(`图片域名解析失败:${parsed.hostname}`)
-  }
-  if (addresses.length === 0 || addresses.some((ip) => isBlockedIp(ip))) {
-    throw new Error('图片目标地址被拒绝(解析到内网/保留地址)')
   }
 
   const sizeController = new AbortController()
@@ -446,7 +327,6 @@ async function callVision(
   const endpoint = opts.endpoint ?? VISION_ENDPOINT
   const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS
   const downloadTimeoutMs = opts.downloadTimeoutMs ?? DEFAULT_DOWNLOAD_TIMEOUT_MS
-  const lookupImpl = opts.lookupImpl ?? defaultLookup
 
   // 收集图片(顺序 = path → data → url);总量按字节在请求前累加校验
   const images: CollectedImage[] = []
@@ -492,14 +372,13 @@ async function callVision(
     pushImage(decodeImageData(raw, maxBytes))
   }
 
-  // image_urls 路:SSRF 防护下载(协议白名单 + DNS IP 黑名单 + 超时 + 流式限流 + mime 双校验)
+  // image_urls 路:https 下载(协议白名单 + 超时 + 流式限流 + mime 双校验)
   for (const url of urlList) {
     pushImage(
       await downloadImageUrl(url, {
         maxImageBytes: maxBytes,
         downloadTimeoutMs,
         fetchImpl,
-        lookupImpl,
         signal,
       }),
     )
@@ -597,7 +476,7 @@ export function createVisionTools(options: VisionToolOptions): ToolDefinition[] 
         '输入三路(可混用,最多 8 张、单张 ≤ 10MB、总量 ≤ 20MB):' +
         'image_paths 图片路径数组(推荐,本机图片):相对工作区根的图片文件路径,如 docs/diagram.png;' +
         'image_data 图片数据数组:data URL(data:image/png;base64,…)或裸 base64,适合剪贴板图片;' +
-        'image_urls 图片 URL 数组:仅 https(内网/保留地址拒绝),适合网页图片。' +
+        'image_urls 图片 URL 数组:仅 https,适合网页图片。' +
         'image_path(单数)已弃用,请用 image_paths。' +
         '支持格式:JPEG/PNG/GIF/WebP。' +
         'question 可选(关于图片的问题,缺省「请详细描述这张图片的内容」)。' +
