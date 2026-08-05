@@ -99,6 +99,46 @@ describe('ChatPane / 模型与思考级别按压状态', () => {
 })
 
 describe('ChatPane / skill 搜索下拉', () => {
+  it('combobox 语义:listbox/option 存在,aria-activedescendant 随方向键移动', async () => {
+    const { wrapper } = mountPane({ skills: SKILLS })
+    const textarea = wrapper.find('textarea')
+
+    // 输入框带 combobox 契约;未打开时无展开态
+    expect(textarea.attributes('role')).toBe('combobox')
+    expect(textarea.attributes('aria-autocomplete')).toBe('list')
+    expect(textarea.attributes('aria-controls')).toBe('skill-listbox')
+    expect(textarea.attributes('aria-expanded')).toBe('false')
+
+    await textarea.setValue('/')
+    await flushPromises()
+
+    const listbox = wrapper.find('[role="listbox"]')
+    expect(listbox.exists()).toBe(true)
+    expect(listbox.attributes('id')).toBe('skill-listbox')
+    expect(textarea.attributes('aria-expanded')).toBe('true')
+
+    const options = wrapper.findAll('[role="option"]')
+    expect(options).toHaveLength(4)
+    // 初始高亮第 0 项:aria-selected + activedescendant 一致
+    expect(options[0].attributes('id')).toBe('skill-opt-0')
+    expect(options[0].attributes('aria-selected')).toBe('true')
+    expect(options[1].attributes('aria-selected')).toBe('false')
+    expect(textarea.attributes('aria-activedescendant')).toBe('skill-opt-0')
+
+    // ArrowDown → 高亮随动
+    await textarea.trigger('keydown', { key: 'ArrowDown' })
+    await flushPromises()
+    expect(textarea.attributes('aria-activedescendant')).toBe('skill-opt-1')
+    expect(options[1].attributes('aria-selected')).toBe('true')
+    expect(options[0].attributes('aria-selected')).toBe('false')
+
+    // Esc 关闭:展开态清除,activedescendant 移除
+    await textarea.trigger('keydown', { key: 'Escape' })
+    await flushPromises()
+    expect(textarea.attributes('aria-expanded')).toBe('false')
+    expect(textarea.attributes('aria-activedescendant')).toBeUndefined()
+  })
+
   it('输入 / 弹出下拉,展示全部 skills 与来源标签', async () => {
     const { wrapper } = mountPane({ skills: SKILLS })
     const textarea = wrapper.find('textarea')

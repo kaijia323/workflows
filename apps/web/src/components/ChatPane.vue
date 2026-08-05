@@ -389,12 +389,17 @@ async function rejectPlan(): Promise<void> {
           <!-- / skill 搜索下拉(选中后填入 /skill:<name>,由用户回车发送) -->
           <div
             v-if="skillMenuOpen"
+            id="skill-listbox"
+            role="listbox"
             class="absolute bottom-full left-0 right-0 z-20 mb-1.5 max-h-64 overflow-y-auto rounded-md border border-hairline bg-canvas shadow-lg"
           >
             <button
               v-for="(skill, i) in filteredSkills"
+              :id="'skill-opt-' + i"
               :key="skill.name"
               type="button"
+              role="option"
+              :aria-selected="i === skillIndex"
               class="flex w-full items-center gap-2 px-3 py-2 text-left transition"
               :class="i === skillIndex ? 'bg-primary/10' : 'hover:bg-canvas-soft'"
               @mousedown.prevent
@@ -408,6 +413,7 @@ async function rejectPlan(): Promise<void> {
             </button>
             <p
               v-if="filteredSkills.length === 0"
+              role="status"
               class="px-3 py-2 font-mono text-[11px] text-mute"
             >
               无可用 skill
@@ -417,6 +423,11 @@ async function rejectPlan(): Promise<void> {
             id="chat-input"
             ref="textareaRef"
             v-model="draft"
+            role="combobox"
+            aria-autocomplete="list"
+            aria-controls="skill-listbox"
+            :aria-expanded="skillMenuOpen"
+            :aria-activedescendant="skillMenuOpen && filteredSkills.length > 0 ? 'skill-opt-' + skillIndex : undefined"
             :disabled="!agent.activeWorkspaceId.value"
             rows="1"
             spellcheck="false"
