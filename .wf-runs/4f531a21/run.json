@@ -7,7 +7,7 @@
     "planFile": ".wf-runs\\4f531a21\\02-plan-2.md"
   },
   "createdAt": 1785946353436,
-  "updatedAt": 1785947749684,
+  "updatedAt": 1785948792508,
   "agents": [
     {
       "callId": "call_00_djo9nQgI0feU7mqIf7nn2002",
@@ -48,6 +48,22 @@
       "artifact": ".wf-runs\\4f531a21\\02-plan-2.md",
       "sessionFile": "sessions\\857395d8-e02b-4b8c-9b07-5144bbf849cd\\sub\\4f531a21\\2026-08-05T16-29-55-353Z_019fd2c2-9519-7bd4-ae0b-60bfa4650396.jsonl",
       "ts": 1785947638243
+    },
+    {
+      "callId": "call_00_zfCKX3wVgCC7qWCJ4dBU3506",
+      "agent": "executor",
+      "summary": "实施完成,4 个 commit,工作区干净。\n\n## 执行摘要\n\n**Phase 0 基线**:工作区干净,`pnpm build && typecheck && test` 全绿(api 293 / web 68)。\n\n**Phase 1 后端**(`20703ca`):新建 `visionTools.ts`(内置 HTTP 工具 `vision-understand`,调小米 mimo-v2.5,守卫/10MB/60s/50KB 截断/错误分层);config.ts 新增 `visionEnabled`/`visionApiKey` 持久化 + `visionAvailable` 注册门(单一事实源);piService 双分支注册 + 白名单 + `setVisionConfig`(开关翻转→`refreshOpenSessions`,含只读;`mcpRebuildPending`→`rebuildPending` 改名 + `rebuildAllHandles` 抽取);subAgent 双点注册;`PUT /api/agent/config/vision` 路由;shared 类型;AGENTS.md/docs 登记;+48 单测。\n\n**Phase 2 前端**(`71ab29c`):新建 `VisionPanel.vue`(开关默认关 + key 输入 + 三态状态行);ApiKeyModal 增加「视觉模型」tab;useAgent 增加 `saveVisionConfig` 与 computed;+8 测试。\n\n**Phase 3 验证**(`a1fff8c`):`mock-xiaomi-server.mjs` + `verify-vision.mjs` 已**实际运行通过**——离线组合确认 image_url 序列化(`data:image/png;base64,…` 总长 118)、model/stream 字段、固定 choices 返回;线上无 key 跳过路径 exit 0。\n\n**最终回归**(`--force` 无缓存):build / typecheck / lint 3/3 全绿;api **341** 用例(17 文件)、web **76** 用例(9 文件)全绿。\n\n**遗留事项**:\n- 🔑 真实 key 冒烟(计划 §3.2 清单 1-8)跳过——**待用户提供小米 API key 后执行**(命令与步骤见执行报告 §5.1);\n- 需用户决策的默认值(工具名/单图/纯文本返回/env 通道)按计划默认实施;\n- 与计划的 3 处小偏差(未声明重复的 50KB 常量、路由测试落在新文件 `visionRoutes.test.ts`、超限错误文案按字节表述)已在执行报告中说明。\n\n完整改动清单、commit 列表、验证结果与遗留事项见产物 `.wf-runs/4f531a21/03-execution-1.md`(已随 `56625fe chore: 提交工作流运行记录 .wf-runs` 入库)。",
+      "artifact": ".wf-runs\\4f531a21\\03-execution-1.md",
+      "sessionFile": "sessions\\857395d8-e02b-4b8c-9b07-5144bbf849cd\\sub\\4f531a21\\2026-08-05T16-35-49-688Z_019fd2c7-fd38-71e8-a322-393105ca0692.jsonl",
+      "ts": 1785948606648
+    },
+    {
+      "callId": "call_00_xDvEWqchZjueVRoPzhyX1810",
+      "agent": "reviewer",
+      "summary": "审查完成,报告已写入 `.wf-runs/4f531a21/04-review-1.md`。\n\n## 结论摘要\n\n**结论:pass** ✅(三个 commit `20703ca` / `71ab29c` / `a1fff8c` 全部通过审查)\n\n**计划符合性**:无范围蔓延——无 provider 泛化、模型切换、用户传图链路残留(全库 grep 确认);3 处声明偏差均合理。**核心逻辑**:visionTools.ts(参数/守卫先行/10MB/mime 白名单/60s 超时/50KB 截断/错误分层/OpenAI 兼容请求格式)与 anySearchTools 纪律完全同构;config.ts 持久化与 `visionAvailable` 注册门正确;piService 读写/只读双分支注册 + 白名单 + 开关翻转→`refreshOpenSessions` 正确;`mcpRebuildPending→rebuildPending` 全量改名无残留,MCP 刷新既有语义(只读跳过)保留;subAgent 双点注册完整;路由校验与 key 不回传正确。**安全性**:key 仅存 config.json(既有设计)、无路由泄漏、错误文案脱敏、守卫先于文件 IO、fetch 注入与 anysearch 一致。**测试**:+48 api / +8 web,关键分支(开关关不注册、key 缺失、越界、超限)全覆盖。\n\n**问题清单(均非阻塞)**:\n1. (medium) `VisionPanel.vue` handleSave:重新开启开关时密码框为空 → 提交 `apiKey: ''` 清空已配置 key,与「关闭保留 key、重开恢复可用」的计划意图矛盾(计划自身两处意图冲突,实现按字面执行)。建议:空输入时不提交 apiKey,清空改为显式动作。\n2. (minor) VisionPanel 开关本地态与后端状态保存失败时不同步。建议失败回滚。\n3. (info) 真实 key 冒烟(计划 §3.2)因用户未提供 key 跳过,已在执行报告标注,待补做。\n\n**最终建议:通过**;问题 1、2 建议下轮修复,问题 3 按遗留事项跟踪。",
+      "artifact": ".wf-runs\\4f531a21\\04-review-1.md",
+      "sessionFile": "sessions\\857395d8-e02b-4b8c-9b07-5144bbf849cd\\sub\\4f531a21\\2026-08-05T16-50-14-550Z_019fd2d5-2f95-7c45-b0d3-1075b82fd2d6.jsonl",
+      "ts": 1785948786230
     }
   ]
 }
