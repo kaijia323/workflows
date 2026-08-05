@@ -101,12 +101,12 @@ function connectorClass(status: DagNodeState['status']): string {
       </span>
     </div>
 
-    <!-- 节点连线 -->
+    <!-- 节点连线:w-12×4 + w-3×3 = 252px ≤ 面板内宽,不再被 flex 压缩 -->
     <div class="mt-3 flex items-center justify-center">
       <!-- 探索 -->
       <button
         type="button"
-        class="flex w-14 flex-col items-center gap-1 transition hover:opacity-80"
+        class="flex w-12 flex-col items-center gap-1 transition hover:opacity-80"
         :disabled="!nodes[0].callId"
         @click="openNode(nodes[0])"
       >
@@ -123,14 +123,14 @@ function connectorClass(status: DagNodeState['status']): string {
       </button>
 
       <span
-        class="mx-1 h-px w-5"
+        class="mx-1 h-px w-3"
         :class="connectorClass(nodes[0].status)"
       />
 
       <!-- 计划 -->
       <button
         type="button"
-        class="flex w-14 flex-col items-center gap-1 transition hover:opacity-80"
+        class="flex w-12 flex-col items-center gap-1 transition hover:opacity-80"
         :disabled="!nodes[1].callId"
         @click="openNode(nodes[1])"
       >
@@ -148,7 +148,7 @@ function connectorClass(status: DagNodeState['status']): string {
 
       <!-- 闸门 -->
       <span
-        class="mx-1 flex h-px w-5 items-center"
+        class="mx-1 flex h-px w-3 items-center"
         :class="connectorClass(nodes[1].status)"
       >
         <span
@@ -163,7 +163,7 @@ function connectorClass(status: DagNodeState['status']): string {
       <!-- 执行 -->
       <button
         type="button"
-        class="flex w-14 flex-col items-center gap-1 transition hover:opacity-80"
+        class="flex w-12 flex-col items-center gap-1 transition hover:opacity-80"
         :disabled="!nodes[2].callId"
         @click="openNode(nodes[2])"
       >
@@ -181,7 +181,7 @@ function connectorClass(status: DagNodeState['status']): string {
 
       <!-- 执行 ⇄ 审查回边 -->
       <span
-        class="mx-1 flex h-px w-5 items-center"
+        class="mx-1 flex h-px w-3 items-center"
         :class="connectorClass(nodes[2].status)"
       >
         <span class="mx-auto text-mute"><ArrowLeftRight class="size-3" /></span>
@@ -190,7 +190,7 @@ function connectorClass(status: DagNodeState['status']): string {
       <!-- 审查 -->
       <button
         type="button"
-        class="flex w-14 flex-col items-center gap-1 transition hover:opacity-80"
+        class="flex w-12 flex-col items-center gap-1 transition hover:opacity-80"
         :disabled="!nodes[3].callId"
         @click="openNode(nodes[3])"
       >

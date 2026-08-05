@@ -292,10 +292,10 @@ async function rejectPlan(): Promise<void> {
         </div>
       </div>
 
-      <!-- 消息列表 -->
+      <!-- 消息列表:max-w-2xl(≈672px,回落到 65-75ch 行长) -->
       <div
         v-else
-        class="mx-auto flex max-w-3xl flex-col gap-4"
+        class="mx-auto flex max-w-2xl flex-col gap-4"
       >
         <MessageBubble
           v-for="msg in agent.messages.value"

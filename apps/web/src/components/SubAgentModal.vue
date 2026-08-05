@@ -150,7 +150,7 @@ function toggleTool(msg: UiMessage, callId: string): void {
         </p>
         <div
           v-else-if="messages.length > 0"
-          class="mx-auto flex max-w-3xl flex-col gap-4"
+          class="mx-auto flex max-w-2xl flex-col gap-4"
         >
           <MessageBubble
             v-for="msg in messages"
