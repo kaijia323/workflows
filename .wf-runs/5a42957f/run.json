@@ -1,12 +1,21 @@
 {
   "runId": "5a42957f",
   "sessionId": "6e49771a-e9bd-4c5b-b675-4f9d4dfcaca1",
-  "status": "planning",
+  "status": "done",
   "gate": {
     "pending": false,
     "planFile": null
   },
   "createdAt": 1785953237891,
-  "updatedAt": 1785953237892,
-  "agents": []
+  "updatedAt": 1785954108488,
+  "agents": [
+    {
+      "callId": "call_00_v7ym8lCsvfbfjoEcUl0t7396",
+      "agent": "executor",
+      "summary": "全部完成。执行摘要如下:\n\n## 改动文件清单\n\n**问题 1 + 2(web,commit `1ecb78e`)**\n- `apps/web/src/components/ChatPane.vue`\n  - 删除按钮:`grid place-items-center` + 文本 `×` → `flex items-center justify-center` + lucide `<X class=\"size-3\" />`(保留 aria-label)。原因:浏览器实测(canvas measureText 应用字体栈)× 字形中心在基线上方 +3.5~6px,各字体残余偏移 0.5~1px 且方向不一,CJK 回退更不可控;SVG 图标为几何盒,flex 居中精确无字体依赖。\n  - handleSend:上传成功后**派发消息即刻清空** `pendingImages`(不再等流式回合结束);快照 `sentImages`,`sendMessage` resolve 后统一 revoke objectURL(浏览器实测:src 设置前 revoke → 裂图,加载后 revoke → 正常,故不提前 revoke,避免会话气泡缩略图裂图);失败分支恢复草稿 + 恢复待发图片(与发送期间新粘贴项合并,复用已上传 path 不重复上传,P2 语义不回退)。\n\n**问题 3(api,commit `536fcf4`)**\n- `apps/api/src/pi/visionTools.ts`:移除 `node:dns/promises` import、`lookupImpl` 注入点、`ipv4ToInt`/`ipv6ToBytes`/`isBlockedIp`/`defaultLookup`、下载流程 DNS 黑名单校验;保留仅 https 校验、10s 超时、流式 ≤10MB abort、Content-Type + 魔数双校验;`isBlockedIp` 不再导出;schema/工具 description/文件头注释同步移除「内网/保留地址拒绝」「SSRF」表述。\n- `apps/api/src/pi/visionTools.test.ts`:删除 isBlockedIp 相关 3 用例与 `LOOKUP_PUBLIC` stub,describe 改名 `image_urls(https 下载)`,URL 用例集合调整为:https 下载成功 / 非 https 拒绝 / 下载超时 / 流式超限 abort / Content-Type 非白名单 / 魔数嗅探失败。\n\n## 自检结果(全量四门)\n- `pnpm test`:api 18 文件 370 用例、web 10 文件 101 用例全部通过(visionTools 46、ChatPane 28,含 P2 失败恢复/双击锁/revoke 断言)\n- `pnpm typecheck` / `pnpm lint` / `pnpm build`:3/3 全绿\n\n## Commit\n1. `536fcf4` fix(api): vision-understand image_urls 移除 DNS 内网 IP 拦截(SSRF 黑名单)\n2. `1ecb78e` fix(web): ChatPane 发送后立即清空待发缩略图 + 删除按钮图标居中\n3. `ca13bb6` chore: 提交工作流运行记录 .wf-runs(执行报告已写入 `.wf-runs/5a42957f/03-execution-1.md`)\n\n无未完成项(真实小米 key 冒烟未做,行为变化已由单测覆盖,已标注遗留)。",
+      "artifact": ".wf-runs\\5a42957f\\03-execution-1.md",
+      "sessionFile": "sessions\\857395d8-e02b-4b8c-9b07-5144bbf849cd\\sub\\5a42957f\\2026-08-05T18-07-17-895Z_019fd31b-bb87-785b-b717-86e8c0eeb438.jsonl",
+      "ts": 1785953862602
+    }
+  ]
 }

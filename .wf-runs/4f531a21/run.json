@@ -1,13 +1,13 @@
 {
   "runId": "4f531a21",
   "sessionId": "6e49771a-e9bd-4c5b-b675-4f9d4dfcaca1",
-  "status": "executing",
+  "status": "done",
   "gate": {
     "pending": false,
-    "planFile": ".wf-runs\\4f531a21\\02-plan-2.md"
+    "planFile": null
   },
   "createdAt": 1785946353436,
-  "updatedAt": 1785948792508,
+  "updatedAt": 1785948991347,
   "agents": [
     {
       "callId": "call_00_djo9nQgI0feU7mqIf7nn2002",
@@ -64,6 +64,14 @@
       "artifact": ".wf-runs\\4f531a21\\04-review-1.md",
       "sessionFile": "sessions\\857395d8-e02b-4b8c-9b07-5144bbf849cd\\sub\\4f531a21\\2026-08-05T16-50-14-550Z_019fd2d5-2f95-7c45-b0d3-1075b82fd2d6.jsonl",
       "ts": 1785948786230
+    },
+    {
+      "callId": "call_00_OQWqMBClDkA5howLiI2Y5583",
+      "agent": "executor",
+      "summary": "完成。工作区干净,两个 commit 已入库。\n\n## 执行摘要\n\n**改动文件**(仅 2 个,范围严格受限):\n\n- **`apps/web/src/components/VisionPanel.vue`**\n  - **问题 1(medium)**:`handleSave` 开启态下,`keyInput.trim()` 为空时不提交 `apiKey` 字段(提交 `{ enabled: true }`,后端 `setVisionConfig` 遇 `undefined` 不触碰存储键),仅在用户显式输入新 key 时才更新;「清空 key」收敛为显式「清除 key」按钮(`visionOn && hasVisionApiKey` 时显示,两步确认防误触:首次点击进入「确认清除?」不发起请求,再次点击才提交 `{ enabled: true, apiKey: '' }`;切开关/保存自动复位确认态)。\n  - **问题 2(minor)**:保存失败时 `visionOn` 回滚到 `agent.visionEnabled.value`,开关位置与状态行文案不再矛盾;开关点击改为 `toggleSwitch` 方法。\n- **`apps/web/src/components/VisionPanel.test.ts`**\n  - 替换旧「空串清 key」用例 →「开启态空 key 输入保存:仅提交 `{ enabled: true }`(保留后端 key)」;\n  - 新增「显式清除 key:两步确认」用例(首次点击零请求 → 确认态 → 再次点击提交空串);\n  - 「保存失败」用例补开关回滚断言(乐观开启 → 失败回滚 false)+ 保留输入;默认关用例补「无 key 不显示清除按钮」。\n\n**自检结果**(全部通过,`--force` 无缓存):\n\n| 项 | 结果 |\n| --- | --- |\n| web 单测 | 9 文件 **77** 用例通过(基线 76,+1) |\n| api 单测 | 17 文件 341 用例通过(零改动,回归确认) |\n| typecheck / build / lint | 3/3 任务成功 / 3/3 / 0 error |\n\n**Commit 信息**:\n- `8980fef` fix(web): 视觉面板空 key 不覆盖后端配置 + 保存失败回滚开关状态\n- `dd003ec` chore: 提交工作流运行记录 .wf-runs\n\n执行报告已写入 `.wf-runs/4f531a21/03-execution-2.md`。",
+      "artifact": ".wf-runs\\4f531a21\\03-execution-2.md",
+      "sessionFile": "sessions\\857395d8-e02b-4b8c-9b07-5144bbf849cd\\sub\\4f531a21\\2026-08-05T16-53-12-509Z_019fd2d7-e6bd-7ced-957c-9728cfa2da36.jsonl",
+      "ts": 1785948983712
     }
   ]
 }
