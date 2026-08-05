@@ -27,6 +27,8 @@ const textareaRef = ref<HTMLTextAreaElement | null>(null)
 const stickToBottom = ref(true)
 const sendError = ref<string | null>(null)
 const rejectDraft = ref('')
+/** 上传 + 发送 in-flight 锁:双击 / 连按回车防重复上传与重复消息(P2 修复) */
+const sending = ref(false)
 
 /* ---------------- 粘贴图片待发队列 ---------------- */
 
@@ -189,47 +191,64 @@ watch(
 onMounted(() => scrollToBottom())
 
 async function handleSend() {
+  if (sending.value) return // 并发锁:上传 + 发送进行中,双击 / 连按回车直接忽略
   const text = draft.value.trim()
   // 纯图可发送(空文本 + 待发图片);风险 7:仅当有图才放行
   if ((!text && pendingImages.value.length === 0) || props.agent.streaming.value || !props.agent.activeWorkspaceId.value) {
     return
   }
-  sendError.value = null
-
-  // 并行上传全部待发图片;任一张失败 → 不发送,缩略图保留(标 error,可删除重试)
-  const uploadTasks = pendingImages.value.map(async (img) => {
-    img.status = 'uploading'
-    try {
-      const path = await props.agent.uploadImage(img.uploadDataUrl)
-      img.path = path
-      img.status = 'ready'
-      return path
-    } catch (error) {
-      img.status = 'error'
-      img.error = error instanceof Error ? error.message : String(error)
-      throw error
-    }
-  })
-  let paths: string[]
-  try {
-    paths = await Promise.all(uploadTasks)
-  } catch (error) {
-    sendError.value = `图片上传失败:${error instanceof Error ? error.message : String(error)}`
+  // 压缩失败项(无上传数据)不可发送:阻止并提示,不能带残缺图片触发误导性 400(P2 修复)
+  if (pendingImages.value.some((img) => img.status === 'error' && !img.uploadDataUrl)) {
+    sendError.value = '存在压缩失败的图片,请删除后重试'
     return
   }
-
-  // 方案 A:图片路径拼进消息文本([图片: <path>] 前缀 + 原文本),agent 可见路径即可调 vision-understand;
-  // 无图时保持 v1 行为(文本原样发送,不带多余空格)
-  const prefix = pendingImages.value.map((_img, i) => `[图片: ${paths[i]}]`).join(' ')
-  const fullText = pendingImages.value.length > 0 ? `${prefix}${text ? ` ${text}` : ''}` : text
-  const images = pendingImages.value.map((img, i) => ({ path: paths[i], thumb: img.thumb }))
-  draft.value = ''
-  stickToBottom.value = true
+  sending.value = true
+  sendError.value = null
+  const originalDraft = draft.value
   try {
-    await props.agent.sendMessage(fullText, images.length > 0 ? images : undefined)
-    clearPendingImages() // 发送成功:清空并全部 revoke(决策 6)
-  } catch (error) {
-    sendError.value = error instanceof Error ? error.message : String(error)
+    // 并行上传尚未上传成功的项(已含 path 的直接复用 → 重试不重复落盘);
+    // 任一张失败 → 不发送,缩略图保留(标 error,可删除重试)
+    const toUpload = pendingImages.value.filter((img) => !img.path)
+    const uploadTasks = toUpload.map(async (img) => {
+      img.status = 'uploading'
+      try {
+        const path = await props.agent.uploadImage(img.uploadDataUrl)
+        img.path = path
+        img.status = 'ready'
+        return path
+      } catch (error) {
+        img.status = 'error'
+        img.error = error instanceof Error ? error.message : String(error)
+        throw error
+      }
+    })
+    let uploadedPaths: string[]
+    try {
+      uploadedPaths = await Promise.all(uploadTasks)
+    } catch (error) {
+      sendError.value = `图片上传失败:${error instanceof Error ? error.message : String(error)}`
+      return
+    }
+    // 按待发队列顺序收集最终路径(已上传的复用 path,新上传的按成功顺序补齐)
+    let next = 0
+    const paths = pendingImages.value.map((img) => img.path ?? uploadedPaths[next++])
+
+    // 方案 A:图片路径拼进消息文本([图片: <path>] 前缀 + 原文本),agent 可见路径即可调 vision-understand;
+    // 无图时保持 v1 行为(文本原样发送,不带多余空格)
+    const prefix = pendingImages.value.map((_img, i) => `[图片: ${paths[i]}]`).join(' ')
+    const fullText = pendingImages.value.length > 0 ? `${prefix}${text ? ` ${text}` : ''}` : text
+    const images = pendingImages.value.map((img, i) => ({ path: paths[i], thumb: img.thumb }))
+    draft.value = ''
+    stickToBottom.value = true
+    try {
+      await props.agent.sendMessage(fullText, images.length > 0 ? images : undefined)
+      clearPendingImages() // 发送成功:清空并全部 revoke(决策 6)
+    } catch (error) {
+      sendError.value = error instanceof Error ? error.message : String(error)
+      draft.value = originalDraft // 发送失败:恢复输入草稿(待发图片保留,可直接重试,P2 修复)
+    }
+  } finally {
+    sending.value = false
   }
 }
 
@@ -607,7 +626,7 @@ async function rejectPlan(): Promise<void> {
           v-else
           type="button"
           class="shrink-0 rounded-sm bg-primary px-4 py-2.5 font-display text-[11px] font-semibold tracking-widest text-on-primary transition hover:bg-primary-soft disabled:opacity-40"
-          :disabled="(!draft.trim() && pendingImages.length === 0) || !agent.activeWorkspaceId.value"
+          :disabled="sending || (!draft.trim() && pendingImages.length === 0) || !agent.activeWorkspaceId.value"
           @click="handleSend"
         >
           发送

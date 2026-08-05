@@ -482,6 +482,79 @@ describe('ChatPane / 粘贴图片缩略图(compressorjs 压缩已 mock)', () => 
     expect(wrapper.find('[aria-label="删除图片"]').exists()).toBe(true) // 保留可删除重试
   })
 
+  it('双击锁:上传进行中再次触发发送(按钮 / 回车)不重复上传与发送', async () => {
+    const { wrapper, uploadImage, sendMessage } = mountPane()
+    let resolveUpload!: (path: string) => void
+    uploadImage.mockImplementationOnce(() => new Promise<string>((resolve) => { resolveUpload = resolve }))
+    paste(wrapper, [imageFile()])
+    await flushPromises()
+
+    const sendBtn = wrapper.findAll('button').find((b) => b.text() === '发送')
+    await sendBtn?.trigger('click')
+    // 上传未完成:再次点击 + 回车均被 in-flight 锁拦截
+    await sendBtn?.trigger('click')
+    await wrapper.find('textarea').trigger('keydown', { key: 'Enter' })
+    await flushPromises()
+    expect(uploadImage).toHaveBeenCalledTimes(1)
+    expect(sendMessage).not.toHaveBeenCalled()
+    // 上传期间发送按钮禁用(与既有 disabled 风格一致)
+    expect(wrapper.findAll('button').find((b) => b.text() === '发送')?.attributes('disabled')).toBeDefined()
+
+    resolveUpload('up-1.png')
+    await flushPromises()
+    await flushPromises()
+    // 锁释放后只发送一次
+    expect(uploadImage).toHaveBeenCalledTimes(1)
+    expect(sendMessage).toHaveBeenCalledTimes(1)
+    expect(sendMessage).toHaveBeenCalledWith('[图片: up-1.png]', [{ path: 'up-1.png', thumb: 'blob:mock-thumb' }])
+  })
+
+  it('压缩失败项阻止发送并提示,不触发上传(避免误导性 400)', async () => {
+    const { wrapper, uploadImage, sendMessage } = mountPane()
+    vi.mocked(preparePastedImage).mockRejectedValueOnce(new Error('compress boom'))
+    paste(wrapper, [imageFile()])
+    await flushPromises()
+
+    // 压缩失败项以 error 态入列:无缩略图 img,显示失败占位(!)
+    expect(wrapper.findAll('img')).toHaveLength(0)
+    expect(wrapper.find('[aria-label="删除图片"]').exists()).toBe(true)
+
+    await wrapper.findAll('button').find((b) => b.text() === '发送')?.trigger('click')
+    await flushPromises()
+
+    expect(uploadImage).not.toHaveBeenCalled()
+    expect(sendMessage).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('存在压缩失败的图片,请删除后重试')
+  })
+
+  it('sendMessage 失败:恢复输入草稿与待发图片;重试复用已上传 path 不重复上传', async () => {
+    const { wrapper, uploadImage, sendMessage } = mountPane()
+    sendMessage.mockRejectedValueOnce(new Error('network down'))
+    paste(wrapper, [imageFile()])
+    await flushPromises()
+    await wrapper.find('textarea').setValue('请分析这张截图')
+    await flushPromises()
+
+    await wrapper.findAll('button').find((b) => b.text() === '发送')?.trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('network down')
+    // 输入草稿恢复(不再丢失)
+    expect((wrapper.find('textarea').element as HTMLTextAreaElement).value).toBe('请分析这张截图')
+    // 待发图片保留(可重试)
+    expect(wrapper.find('[aria-label="删除图片"]').exists()).toBe(true)
+    expect(uploadImage).toHaveBeenCalledTimes(1)
+
+    // 重试:已上传成功的项直接复用 path,不重复上传;消息发送成功
+    await wrapper.findAll('button').find((b) => b.text() === '发送')?.trigger('click')
+    await flushPromises()
+    expect(uploadImage).toHaveBeenCalledTimes(1)
+    expect(sendMessage).toHaveBeenCalledTimes(2)
+    expect(sendMessage).toHaveBeenLastCalledWith('[图片: up-1.png] 请分析这张截图', [
+      { path: 'up-1.png', thumb: 'blob:mock-thumb' },
+    ])
+  })
+
   it('只读工作区粘贴:拒绝并提示,无缩略图,不调用压缩', async () => {
     const { wrapper } = mountPane({ readOnly: true })
     paste(wrapper, [imageFile()])
