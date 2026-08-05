@@ -375,7 +375,7 @@ async function rejectPlan(): Promise<void> {
         </button>
       </p>
 
-      <div class="flex items-end gap-2">
+      <div class="flex items-center gap-2">
         <div class="relative flex-1">
           <!-- / skill 搜索下拉(选中后填入 /skill:<name>,由用户回车发送) -->
           <div
@@ -411,7 +411,7 @@ async function rejectPlan(): Promise<void> {
             rows="1"
             spellcheck="false"
             :placeholder="agent.activeWorkspaceId.value ? '输入消息,输入 / 可搜索 skills,Enter 发送,Shift+Enter 换行…' : '先在左侧选择一个工作区'"
-            class="max-h-40 min-h-[40px] w-full resize-none rounded-sm border border-hairline bg-canvas-soft px-4 py-2.5 text-[14px] leading-relaxed text-ink placeholder:text-mute focus:border-primary disabled:opacity-50"
+            class="block max-h-40 min-h-[40px] w-full resize-none rounded-sm border border-hairline bg-canvas-soft px-4 py-2.5 text-[14px] leading-relaxed text-ink placeholder:text-mute focus:border-primary disabled:opacity-50"
             @keydown="onKeydown"
             @blur="skillMenuOpen = false"
           />
