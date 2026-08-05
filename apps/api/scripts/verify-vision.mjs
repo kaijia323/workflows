@@ -7,10 +7,12 @@
  *                   node apps/api/scripts/verify-vision.mjs --base-url http://127.0.0.1:3999/v1
  *   线上(需 key):  XIAOMI_API_KEY=sk-... node apps/api/scripts/verify-vision.mjs
  *
- * 参数:--base-url(默认 https://api.xiaomimimo.com/v1)、--model(默认 mimo-v2.5)
+ * 参数:--base-url(默认 https://api.xiaomimimo.com/v1)、--model(默认 mimo-v2.5)、
+ *      --images N(默认 1,构造 N 个 image_url 项 + text 项的请求)
  *
- * 行为:内置程序生成的 1×1 PNG base64 常量,构造 text + image_url 请求,断言
- * 200 + choices[0].message.content 非空;任何断言失败 → 打印错误详情并以非零码退出。
+ * 行为:内置程序生成的 1×1 PNG base64 常量,构造 text + N 个 image_url 请求,断言
+ * 200 + choices[0].message.content 非空;离线(mock)模式下额外断言响应含「(N 张图)」
+ * 文案(验证 mock 收到 N 图);任何断言失败 → 打印错误详情并以非零码退出。
  * 线上模式未设置 XIAOMI_API_KEY 时打印跳过提示并正常退出(0)。
  * 不打印 key 本身。
  */
@@ -22,10 +24,14 @@ const PNG_1X1_BASE64 =
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='
 
 function parseArgs(argv) {
-  const out = { baseUrl: DEFAULT_BASE_URL, model: DEFAULT_MODEL }
+  const out = { baseUrl: DEFAULT_BASE_URL, model: DEFAULT_MODEL, images: 1 }
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--base-url' && argv[i + 1]) out.baseUrl = argv[i + 1]
     if (argv[i] === '--model' && argv[i + 1]) out.model = argv[i + 1]
+    if (argv[i] === '--images' && argv[i + 1]) {
+      const n = Number(argv[i + 1])
+      if (Number.isInteger(n) && n > 0 && n <= 8) out.images = n
+    }
   }
   return out
 }
@@ -36,7 +42,7 @@ function fail(message) {
 }
 
 async function main() {
-  const { baseUrl, model } = parseArgs(process.argv.slice(2))
+  const { baseUrl, model, images } = parseArgs(process.argv.slice(2))
   const isOnline = !baseUrl.includes('127.0.0.1') && !baseUrl.includes('localhost')
   const apiKey = process.env.XIAOMI_API_KEY?.trim()
 
@@ -49,22 +55,20 @@ async function main() {
   const headers = { 'content-type': 'application/json' }
   if (apiKey) headers.authorization = `Bearer ${apiKey}`
 
+  // N 个 image_url 项(多图协议形状,顺序 = 声明序)+ 末尾 text 项
+  const imageUrl = `data:image/png;base64,${PNG_1X1_BASE64}`
+  const reqContent = [
+    ...Array.from({ length: images }, () => ({ type: 'image_url', image_url: { url: imageUrl } })),
+    { type: 'text', text: '请描述这张图片' },
+  ]
   const body = {
     model,
-    messages: [
-      {
-        role: 'user',
-        content: [
-          { type: 'image_url', image_url: { url: `data:image/png;base64,${PNG_1X1_BASE64}` } },
-          { type: 'text', text: '请描述这张图片' },
-        ],
-      },
-    ],
+    messages: [{ role: 'user', content: reqContent }],
     stream: false,
   }
 
   const url = `${baseUrl.replace(/\/$/, '')}/chat/completions`
-  console.log(`[verify-vision] POST ${url} (model=${model}${apiKey ? ', 带 key' : ', 无 key(离线 mock)'})`)
+  console.log(`[verify-vision] POST ${url} (model=${model}, images=${images}${apiKey ? ', 带 key' : ', 无 key(离线 mock)'})`)
   const started = Date.now()
   let res
   try {
@@ -90,6 +94,14 @@ async function main() {
   }
   console.log(`[verify-vision] OK: HTTP 200, choices[0].message.content 非空,耗时 ${elapsed}ms`)
   console.log(`[verify-vision] content: ${content.slice(0, 200)}`)
+  // 离线(mock)模式:断言 mock 响应文案含「(N 张图)」,确证多图协议形状到达服务端
+  if (!isOnline) {
+    const expected = `(${images} 张图)`
+    if (!content.includes(expected)) {
+      fail(`离线 mock 响应应包含「${expected}」,实际:${content.slice(0, 120)}`)
+    }
+    console.log(`[verify-vision] 离线断言通过:mock 响应含「${expected}」`)
+  }
   console.log('[verify-vision] 全部通过')
 }
 

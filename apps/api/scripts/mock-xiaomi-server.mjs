@@ -60,7 +60,7 @@ const server = http.createServer((req, res) => {
         `[mock-xiaomi] image_url 前 80 字符:${url.slice(0, 80)}${url.length > 80 ? '…' : ''}(总长 ${url.length})`,
       )
     }
-    sendJson(res, 200, { choices: [{ message: { content: 'mock 识图成功(1 张图)' } }] })
+    sendJson(res, 200, { choices: [{ message: { content: `mock 识图成功(${images.length} 张图)` } }] })
   })
 })
 
