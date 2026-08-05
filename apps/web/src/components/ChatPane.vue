@@ -338,6 +338,11 @@ async function rejectPlan(): Promise<void> {
           >
             批准执行
           </button>
+          <!-- 可访问名称:驳回意见输入框(placeholder 仅作格式示例) -->
+          <label
+            for="reject-reason"
+            class="sr-only"
+          >驳回意见</label>
           <input
             id="reject-reason"
             v-model="rejectDraft"
