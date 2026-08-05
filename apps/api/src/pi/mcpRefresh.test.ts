@@ -194,7 +194,7 @@ describe('refreshMcpForOpenSessions(空闲立即重建)', () => {
 })
 
 describe('rebuildHandle(失败降级)', () => {
-  it('重开失败 → 回退 openSession(workspace) 新建会话,不抛错,usage 迁移', async () => {
+  it('重开失败 → 回退 openSession(workspace) 新建会话,不抛错,usage 不迁移', async () => {
     const dir = mkdtempSync(path.join(tmpdir(), 'wf-mcp-refresh-'))
     try {
       const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {})
@@ -203,7 +203,12 @@ describe('rebuildHandle(失败降级)', () => {
       const workspace = makeWorkspace(dir)
       const oldHandle = makeHandle(workspace)
       api.handles.set('w1', oldHandle)
-      const fallbackHandle = makeHandle(workspace, { sessionId: 'fresh-id' })
+      // fallback 用与 makeHandle 默认值不同的非默认 usage/lastActivityAt(全新会话语义)
+      const fallbackHandle = makeHandle(workspace, {
+        sessionId: 'fresh-id',
+        usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: 0 },
+        lastActivityAt: null,
+      })
       const openSession = vi
         .spyOn(api, 'openSession')
         .mockRejectedValueOnce(new Error('JSONL 恢复失败'))
@@ -216,8 +221,11 @@ describe('rebuildHandle(失败降级)', () => {
       expect(openSession).toHaveBeenNthCalledWith(1, workspace, 's1')
       expect(openSession).toHaveBeenNthCalledWith(2, workspace)
       expect(result).toBe(fallbackHandle)
-      expect(result.usage).toEqual(oldHandle.usage)
-      expect(result.lastActivityAt).toBe(oldHandle.lastActivityAt)
+      // 降级路径不迁移:fallback 保留自身全新 usage/lastActivityAt,而非旧 handle 的值
+      expect(result.usage).toEqual(fallbackHandle.usage)
+      expect(result.usage).not.toEqual(oldHandle.usage)
+      expect(result.lastActivityAt).toBeNull()
+      expect(result.lastActivityAt).not.toBe(oldHandle.lastActivityAt)
       expect(errorLog).toHaveBeenCalled()
     } finally {
       rmSync(dir, { recursive: true, force: true })

@@ -54,7 +54,7 @@ piService.openSession / subAgent.runSubAgent ──▶ createMcpTools(manager, s
 
 ## 4. 生命周期与缓存
 
-- `McpManager` 每 server 一个 entry:`{ conn, tools, state: connected|error, error?, lastCheckedAt }`
+- `McpManager` 每 server 一个 entry:`{ conn, tools, state: connected|connecting|error, error?, lastCheckedAt, fingerprint: 创建连接所用 config 指纹(null=从未连接) }`
 - `listTools(name, config)`:幂等(缓存命中直接返回);连接已断 → 重连;失败记录 error 状态并抛错(单 server 隔离)
 - `callTool(...)`:ensure 连接 → callTool;**连接断开错误时 close + 重连一次 + 重试该次调用**
 - 超时:connect 10s(Promise.race)/ list 10s / call 60s(SDK RequestOptions.timeout);abort 唯一透传 `Operation aborted`

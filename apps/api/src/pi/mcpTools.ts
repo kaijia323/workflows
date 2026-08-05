@@ -333,10 +333,12 @@ export class StdioMcpConnection implements McpConnection {
  * 用于 McpManager 连接缓存校验:配置变更(保存后)检测到指纹变化 → 断开旧连接按新配置重建。
  */
 export function configFingerprint(config: McpServerConfig): string {
+  const env = config.env ?? {}
   return JSON.stringify({
     command: config.command,
     args: config.args ?? [],
-    env: config.env ?? {},
+    // env 键排序后序列化:同一配置在不同写入路径下键序不一致时不误判指纹变化(避免多余重连)
+    env: Object.fromEntries(Object.entries(env).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))),
   })
 }
 

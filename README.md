@@ -42,7 +42,6 @@ Turborepo monorepo — 基于 pi SDK 的 Web Agent 工作台(DAG 可视化骨架
 
 - 由设置面板维护,亦可手工编辑;agent 无任何工具可写(与 config.json 同为 agent 不可写配置文件,由 workspaceGuard 保证;**仅当工作区不包含 `.workflows` 目录时成立**——若把本仓库根添加为工作区,`.workflows/mcp.json` 即在工作区内,bash/write/edit 均可写)
 - **信任模型**:agent 与 OS 用户同权限,workspaceGuard 等护栏防误操作而非防恶意,与 config.json 同一既有局限
-- 变更后需**新建会话/重开工作区**生效(与 skills 一致)
 - **保存后立即生效**(设置面板):已打开会话自动重建工具集(忙碌会话下一回合生效),删除/禁用立即断开连接并失效;手工编辑 mcp.json 需重启进程生效
 
 ## Skills(技能)
