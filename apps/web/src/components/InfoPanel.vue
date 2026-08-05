@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import type { AgentStore } from '../composables/useAgent'
 import { toolLabel } from '../composables/useAgent'
 import DagPanel from './DagPanel.vue'
@@ -7,11 +7,22 @@ import DagPanel from './DagPanel.vue'
 const props = defineProps<{
   agent: AgentStore
   meta: { workflowsRoot: string; environment: string } | null
+  /** <1100px 时右栏收为抽屉,此值控制滑入/滑出 */
+  open: boolean
 }>()
 
 const emit = defineEmits<{
   openSub: [callId: string, agentName: string]
 }>()
+
+/** 抽屉根(打开时收焦;关闭时 invisible 不在 a11y 树/Tab 序中) */
+const root = ref<HTMLElement | null>(null)
+watch(
+  () => props.open,
+  (open) => {
+    if (open) nextTick(() => root.value?.focus())
+  },
+)
 
 const ws = computed(() => props.agent.activeWorkspace.value)
 const status = computed(() => props.agent.status.value)
@@ -31,7 +42,16 @@ function fmt(n: number | undefined): string {
 </script>
 
 <template>
-  <aside class="flex w-72 shrink-0 flex-col border-l border-hairline bg-canvas">
+  <aside
+    ref="root"
+    tabindex="-1"
+    class="flex w-72 shrink-0 flex-col border-l border-hairline bg-canvas max-console:fixed max-console:inset-y-0 max-console:right-0 max-console:z-40 max-console:transition-[translate,visibility]"
+    :class="
+      props.open
+        ? 'max-console:translate-x-0 max-console:visible'
+        : 'max-console:translate-x-full max-console:invisible'
+    "
+  >
     <!-- 上方:工作流 DAG 图 -->
     <DagPanel
       :agent="agent"

@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { AgentStore } from '../composables/useAgent'
 import WorkspaceRail from './WorkspaceRail.vue'
 
-function mountRail(agent?: Partial<AgentStore>, options: { attachTo?: boolean } = {}) {
+function mountRail(agent?: Partial<AgentStore>, options: { attachTo?: boolean; open?: boolean } = {}) {
   const removeWorkspace = vi.fn(async () => {})
   const toggleReadOnly = vi.fn(async () => {})
   const openWorkspace = vi.fn(async () => {})
@@ -21,7 +21,7 @@ function mountRail(agent?: Partial<AgentStore>, options: { attachTo?: boolean } 
     ...agent,
   } as unknown as AgentStore
   const wrapper = mount(WorkspaceRail, {
-    props: { agent: store },
+    props: { agent: store, open: options.open ?? false },
     attachTo: options.attachTo ? document.body : undefined,
   })
   return { wrapper, removeWorkspace, toggleReadOnly, openWorkspace }

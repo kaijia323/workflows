@@ -1,13 +1,24 @@
 <script setup lang="ts">
+import { nextTick, ref, watch } from 'vue'
 import { Plus } from '@lucide/vue'
 import type { AgentStore } from '../composables/useAgent'
 
 /**
  * 左栏:工作区(源节点)。选择工作区后,agent 上下文限定在该目录。
  * 添加工作区:点击按钮弹出目录选择器(WorkspacePickerModal,由 App.vue 挂载)。
+ * <1100px:侧栏脱离文档流变为左侧抽屉(open 控制滑入/滑出)。
  */
-const props = defineProps<{ agent: AgentStore }>()
+const props = defineProps<{ agent: AgentStore; open: boolean }>()
 const emit = defineEmits<{ openPicker: [] }>()
+
+/** 抽屉根(打开时收焦;关闭时 invisible 不在 a11y 树/Tab 序中) */
+const root = ref<HTMLElement | null>(null)
+watch(
+  () => props.open,
+  (open) => {
+    if (open) nextTick(() => root.value?.focus())
+  },
+)
 
 async function handleRemove(id: string) {
   // 后端 DELETE /workspaces/:id 会连同该工作区全部会话历史文件一并删除(不可恢复),
@@ -23,7 +34,16 @@ function formatDate(ts: number): string {
 </script>
 
 <template>
-  <aside class="flex w-60 shrink-0 flex-col border-r border-hairline bg-canvas">
+  <aside
+    ref="root"
+    tabindex="-1"
+    class="flex w-60 shrink-0 flex-col border-r border-hairline bg-canvas max-console:fixed max-console:inset-y-0 max-console:left-0 max-console:z-40 max-console:transition-[translate,visibility]"
+    :class="
+      props.open
+        ? 'max-console:translate-x-0 max-console:visible'
+        : 'max-console:-translate-x-full max-console:invisible'
+    "
+  >
     <!-- 标题 -->
     <div class="flex items-center justify-between px-4 pb-2 pt-3.5">
       <span class="font-display text-[10px] font-semibold tracking-[0.2em] text-mute">工作区 · SOURCE</span>

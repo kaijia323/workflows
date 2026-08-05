@@ -37,6 +37,9 @@
   --radius-sm: 6px;
   --radius-md: 8px;
 
+  /* 断点:三栏 ↔ 抽屉切换(>=1100px 保持三栏;<1100px 侧栏收为抽屉,聊天列永不为 0) */
+  --breakpoint-console: 1100px;
+
   /* 阴影:分层靠 hairline 描边;glow 仅 hover/激活;重投影仅模态窗 */
   --shadow-glow: 0 0 15px rgba(0, 217, 146, 0.18);
   --shadow-modal: 0 20px 60px rgba(0, 0, 0, 0.7), inset 0 0 0 1px rgba(148, 163, 184, 0.1);
