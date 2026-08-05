@@ -256,9 +256,11 @@ async function rejectPlan(): Promise<void> {
       >等待接入工作区</span>
     </div>
 
-    <!-- 消息流 -->
+    <!-- 消息流:role=log + aria-live 播报新消息到达 -->
     <div
       ref="scroller"
+      role="log"
+      aria-live="polite"
       class="min-h-0 flex-1 overflow-y-auto px-5 py-4"
       @scroll="onScroll"
     >
@@ -357,6 +359,7 @@ async function rejectPlan(): Promise<void> {
 
       <p
         v-if="sendError"
+        role="alert"
         class="mb-2 font-mono text-[10px] text-err"
       >
         {{ sendError }}

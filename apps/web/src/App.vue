@@ -130,6 +130,7 @@ onBeforeUnmount(() => {
     <!-- 连接失败提示条 -->
     <div
       v-if="agent.connectionError.value"
+      role="alert"
       class="shrink-0 border-t border-err/40 bg-err/10 px-5 py-1.5 font-mono text-[10px] text-err"
     >
       <TriangleAlert class="mr-1 inline-block size-3.5 align-[-2px]" />
