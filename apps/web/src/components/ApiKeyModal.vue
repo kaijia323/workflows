@@ -55,10 +55,10 @@ async function handleAnySave() {
 
 <template>
   <div
-    class="fixed inset-0 z-50 grid place-items-center bg-canvas/80 backdrop-blur-sm"
+    class="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-canvas/80 p-6 backdrop-blur-sm"
     @click.self="emit('close')"
   >
-    <div class="w-full max-w-md rounded-md border border-hairline bg-canvas p-6 shadow-modal">
+    <div class="w-full max-w-md max-h-[85vh] overflow-y-auto rounded-md border border-hairline bg-canvas p-6 shadow-modal">
       <div class="flex items-center justify-between">
         <span class="font-display text-[14px] font-semibold tracking-[0.15em] text-ink">连接 · CONNECT</span>
         <button

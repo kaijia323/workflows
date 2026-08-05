@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import type { McpServerConfig, McpToolInfo } from '@workflows/shared'
 import type { AgentStore } from '../composables/useAgent'
 
@@ -15,6 +15,28 @@ const argsInput = ref('')
 const saving = ref(false)
 const error = ref<string | null>(null)
 const saved = ref(false)
+
+/** 手动刷新中(防重复点击) */
+const refreshing = ref(false)
+
+/** 打开面板(模态窗)即拉最新状态;失败静默,与 init() 行为一致 */
+onMounted(() => {
+  void props.agent.refreshMcp().catch(() => {})
+})
+
+/** 手动刷新:失败在面板底部展示错误 */
+async function handleRefresh(): Promise<void> {
+  if (refreshing.value) return
+  refreshing.value = true
+  error.value = null
+  try {
+    await props.agent.refreshMcp()
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    refreshing.value = false
+  }
+}
 
 /** 测试结果:name → 状态(仅内存,不持久化) */
 const testResults = ref<Record<string, { testing: boolean; ok: boolean; tools?: McpToolInfo[]; error?: string }>>({})
@@ -36,6 +58,8 @@ function statusLabel(status: { state: string; error?: string; toolCount: number 
       return `已连接 · ${status.toolCount} 工具`
     case 'connecting':
       return '连接中…'
+    case 'not_connected':
+      return '未连接 · 新建会话后自动连接'
     case 'error':
       return `异常${status.error ? `:${status.error}` : ''}`
     default:
@@ -46,6 +70,7 @@ function statusLabel(status: { state: string; error?: string; toolCount: number 
 function statusClass(state: string): string {
   if (state === 'connected') return 'text-primary'
   if (state === 'connecting') return 'text-mute'
+  if (state === 'not_connected') return 'text-mute'
   if (state === 'error') return 'text-err'
   return 'text-mute'
 }
@@ -105,9 +130,19 @@ async function handleDelete(name: string): Promise<void> {
 
 <template>
   <div class="mt-6 border-t border-hairline pt-4">
-    <p class="font-mono text-[10px] tracking-wider text-mute">
-      MCP · 外部工具
-    </p>
+    <div class="flex items-center justify-between">
+      <p class="font-mono text-[10px] tracking-wider text-mute">
+        MCP · 外部工具
+      </p>
+      <button
+        type="button"
+        class="rounded-sm border border-hairline px-2 py-0.5 font-mono text-[10px] text-body hover:border-primary/50 hover:text-primary disabled:opacity-40"
+        :disabled="refreshing"
+        @click="handleRefresh"
+      >
+        {{ refreshing ? '刷新中…' : '刷新' }}
+      </button>
+    </div>
     <p class="mt-2 text-xs leading-relaxed text-body">
       添加外部 MCP server(stdio 启动命令 + 参数),其工具以
       <code class="font-mono text-primary/90">mcp__&lt;server&gt;__&lt;tool&gt;</code>

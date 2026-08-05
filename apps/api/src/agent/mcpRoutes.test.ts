@@ -93,14 +93,16 @@ describe('/api/agent/mcp* 路由', () => {
     expect(body.code).toBe(0)
     const data = body.data as {
       servers: Array<{ name: string; command: string; enabled: boolean }>
-      status: Array<{ name: string; state: string }>
+      status: Array<{ name: string; state: string; error?: string; toolCount?: number }>
     }
     expect(data.servers).toHaveLength(1)
     expect(data.servers[0]).toMatchObject({ name: 'echo', command: 'node', enabled: true })
     // 磁盘 mcp.json 内容
     expect(diskServers(store)).toMatchObject({ mcpServers: [{ name: 'echo', command: 'node', args: ['-e', 'x'], enabled: true }] })
-    // status 合并:已配置但未连接(manager 无记录)→ disabled/enabled 推导
+    // status 合并:已配置但未连接(manager 无记录)→ enabled 推导为 not_connected(中性,非 error 态)
     expect(data.status).toHaveLength(1)
+    expect(data.status[0]).toMatchObject({ name: 'echo', state: 'not_connected', toolCount: 0 })
+    expect(data.status[0].error).toBeUndefined()
   })
 
   it('PUT 重名 → 覆盖更新(upsert 语义,列表长度不变)', async () => {

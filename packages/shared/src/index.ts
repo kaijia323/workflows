@@ -97,8 +97,8 @@ export interface McpToolInfo {
 /** MCP server 运行时状态(前端面板展示) */
 export interface McpServerStatus {
   name: string
-  /** connecting:连接建立中(ensureEntry 后的初始态,不误报 connected) */
-  state: 'disabled' | 'connecting' | 'connected' | 'error'
+  /** connecting:连接建立中(ensureEntry 后的初始态,不误报 connected);not_connected:已配置但从未尝试连接(路由推导层) */
+  state: 'disabled' | 'connecting' | 'connected' | 'error' | 'not_connected'
   /** state=error 时的错误文案 */
   error?: string
   /** 已缓存工具数 */

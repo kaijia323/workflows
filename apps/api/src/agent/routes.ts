@@ -66,7 +66,7 @@ export function registerAgentRoutes(app: Hono, store: WorkflowsStore, pi: PiAgen
   /* ---------------- MCP server 管理(独立 mcp.json;与 config 区段解耦) ---------------- */
 
   // 配置 + 运行时状态按 name 合并:已连接/尝试过的 server 用 manager 状态;
-  // 其余由配置推导(disabled 或「尚未连接」,提示需重开会话生效)
+  // 其余由配置推导:disabled 或 not_connected(已启用但从未尝试连接,中性提示,非错误态)
   function mcpOverview(): { servers: McpServerConfig[]; status: McpServerStatus[] } {
     const servers = loadMcpServers(store)
     const statusByName = new Map(pi.getMcpStatus().map((s) => [s.name, s]))
@@ -75,11 +75,8 @@ export function registerAgentRoutes(app: Hono, store: WorkflowsStore, pi: PiAgen
       if (existing) return existing
       return {
         name: server.name,
-        state: server.enabled === true ? 'error' : 'disabled',
-        error:
-          server.enabled === true
-            ? '尚未连接(配置变更后需新建会话/重开工作区生效)'
-            : undefined,
+        state: server.enabled === true ? 'not_connected' : 'disabled',
+        error: undefined,
         toolCount: 0,
         lastCheckedAt: null,
       }
