@@ -269,7 +269,7 @@ describe('McpPanel 编辑已有 server', () => {
     expect(submitButton(wrapper)!.text()).toBe('添加并测试')
     expect(wrapper.text()).toContain('新增默认不启用(opt-in)')
     expect(wrapper.find('[data-testid="cancel-edit"]').exists()).toBe(false)
-    expect(wrapper.text()).not.toContain('已保存到 mcp.json')
+    expect(wrapper.text()).not.toContain('已保存并生效')
     expect(wrapper.text()).not.toContain('编辑 server:')
   })
 
@@ -334,7 +334,7 @@ describe('McpPanel 编辑已有 server', () => {
     expect((wrapper.find('textarea').element as HTMLTextAreaElement).value).toBe('')
     expect(submitButton(wrapper)!.text()).toBe('添加并测试')
     expect(wrapper.find('[data-testid="cancel-edit"]').exists()).toBe(false)
-    expect(wrapper.text()).toContain('已保存到 mcp.json')
+    expect(wrapper.text()).toContain('已保存并生效')
     expect(wrapper.text()).not.toContain('编辑 server:')
   })
 

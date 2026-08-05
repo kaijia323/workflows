@@ -21,9 +21,9 @@ v1 范围:
 ```
 mcp.json ──loadMcpServers──▶ routes.ts(/api/agent/mcp*) ──PUT/DELETE──▶ disposeMcpServer
    │                                                                       │
-   │ loadMcpServers                                                        │
-   ▼                                                                       ▼
-piService.openSession / subAgent.runSubAgent ──▶ createMcpTools(manager, servers)
+   │ loadMcpServers                                                        └──▶ refreshMcpForOpenSessions(重建已打开会话)
+   ▼
+piService.openSession / subAgent.runSubAgent ──▶ createMcpTools(manager, servers, resolveServer)
                                                         │
                                                         ▼
                                                  McpManager(单例,主/子代理共享)
@@ -59,9 +59,16 @@ piService.openSession / subAgent.runSubAgent ──▶ createMcpTools(manager, s
 - `callTool(...)`:ensure 连接 → callTool;**连接断开错误时 close + 重连一次 + 重试该次调用**
 - 超时:connect 10s(Promise.race)/ list 10s / call 60s(SDK RequestOptions.timeout);abort 唯一透传 `Operation aborted`
 - stderr:`'pipe'` 挂 drain 监听,环形缓冲最近 50 行(状态面板诊断;不 drain 会背压阻塞子进程)
-- `disposeServer(name)`:配置变更(PUT/DELETE)时断开旧连接 + 清缓存 —— **旧会话工具集不变,新会话生效**
+- `disposeServer(name)`:配置变更(PUT/DELETE)时断开旧连接 + 清缓存
+- `refreshMcpForOpenSessions()`:配置变更(PUT/DELETE)后刷新已打开会话 —— 空闲会话立即重建
+  (同 sessionId 重开,JSONL 恢复上下文,usage 迁移;失败降级为新建会话),忙碌会话挂起
+  (`mcpRebuildPending`)、下一回合开始前生效;只读工作区跳过;单工作区失败隔离
 - `disposeAll()`:进程退出(SIGINT/SIGTERM)时关闭全部 MCP 子进程,防僵尸进程
-- **生效时机**:与 skills 语义一致 —— MCP 配置变更后需**新建会话/重开工作区**生效
+- **生效时机(保存即生效)**:设置面板 PUT/DELETE 保存后立即生效 —— 已打开会话自动重建工具集
+  (方案 A);工具 `execute` 调用时经 live resolver 解析最新配置,连接缓存按配置指纹校验
+  (方案 B)——未重建窗口期内的旧闭包也按新配置连接,删除/禁用 server 后旧会话工具立即失效
+  (调用时报「已删除或未启用」,不按旧配置复活)。**手工编辑 mcp.json 不会触发刷新**,
+  需重启进程/新建会话生效(文件监听未实现,属明确决策)
 
 ## 5. 配置存储设计(独立 mcp.json)
 
@@ -117,4 +124,7 @@ piService.openSession / subAgent.runSubAgent ──▶ createMcpTools(manager, s
 | server 宕机拖慢会话打开 | connect 10s 超时 + 单 server 失败隔离 |
 | 并发调用同一 server | MCP JSON-RPC 支持并发 request,SDK Client 线程安全;若实测异常可用 `executionMode: 'sequential'` 兜底(一行改动) |
 | mcp.json 写入中断 | tmp + rename 原子写;读取容错(损坏 → 空列表) |
+| 会话重建失败 | `rebuildHandle` catch 后回退**新建会话**(旧 JSONL 原样保留,会话列表可切回);`refreshMcpForOpenSessions` 每工作区独立 catch,不阻塞 PUT/DELETE 响应 |
+| 忙碌会话挂起语义 | 刷新只重建空闲会话;忙碌会话置 `mcpRebuildPending`,由 `prompt()` 入口在下一回合开始前消费(**busy 检查先行**,绝不 dispose 运行中回合) |
+| 指纹重连并发竞态 | 两个并发调用同时检测到指纹变化 → entry 级 last-write-wins,与既有「断线重连」路径同构(已知边界,最坏一次调用短暂用旧连接;SDK client 并发请求线程安全) |
 | 回滚 | 删除 `.workflows/mcp.json` 即恢复原状(读取容错:不存在 → 空列表);config.json 全程未改 |

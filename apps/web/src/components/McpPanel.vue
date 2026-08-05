@@ -106,7 +106,7 @@ function statusLabel(status: { state: string; error?: string; toolCount: number 
     case 'connecting':
       return '连接中…'
     case 'not_connected':
-      return '未连接 · 新建会话后自动连接'
+      return '未连接'
     case 'error':
       return `异常${status.error ? `:${status.error}` : ''}`
     default:
@@ -447,11 +447,11 @@ async function handleDelete(name: string): Promise<void> {
       v-else-if="saved"
       class="mt-3 font-mono text-[10px] text-primary"
     >
-      已保存到 mcp.json
+      已保存并生效
     </p>
 
     <p class="mt-3 font-mono text-[10px] leading-relaxed text-mute">
-      新增/修改 MCP server 后需<span class="text-body">新建会话或重开工作区</span>生效(与 skills 一致);删除/禁用会立即断开连接。
+      <span class="text-body">保存后立即生效</span>(已打开会话自动重建工具集;忙碌会话下一回合生效);删除/禁用立即断开连接。手工编辑 mcp.json 需重启生效。
     </p>
   </div>
 </template>
