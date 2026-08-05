@@ -1,0 +1,45 @@
+{
+  "runId": "6238693e",
+  "sessionId": "416b852e-db80-4561-9ccd-aa1a626ede1a",
+  "status": "done",
+  "gate": {
+    "pending": false,
+    "planFile": null
+  },
+  "createdAt": 1785918197213,
+  "updatedAt": 1785918899408,
+  "agents": [
+    {
+      "callId": "call_00_82vHjsl0AN9aJfucLDIe4347",
+      "agent": "explorer",
+      "summary": "调研完成,报告已写入 `.wf-runs/6238693e/01-exploration-1.md`。\n\n## 摘要\n\n**1. SDK env 语义(核心结论)** — `@modelcontextprotocol/sdk@1.30.0`,apps/api 为 ESM,运行时文件 `node_modules/.pnpm/@modelcontextprotocol+sdk@1.30.0_zod@4.4.3/.../dist/esm/client/stdio.js:67-73`:spawn 时 `env: { ...getDefaultEnvironment(), ...this._serverParams.env }`。**env 是与白名单合并而非与 process.env 合并**(白名单非 Win 仅 HOME/LOGNAME/PATH/SHELL/TERM/USER)。推论:直接传 `config.env` 是安全的(SDK 保证白名单仍在),不需要 `{ ...process.env, ...config.env }`;后者会扩大当前\"仅白名单继承\"的继承面,属产品/安全决策。**现状:不传 env 时子进程本就不继承完整 process.env。**\n\n**2. 测试结构** — `mcpTools.test.ts`:`serverConfig(name, extra)` 用 `Partial` spread(第 25 行,类型加 env 后自动可用);manager 层只断言 `fake.connect` 调用次数,无 transport 构造参数断言;真实 stdio 集成测试(ECHO_SERVER_SCRIPT)可加 env 注入断言。**全文 env 零命中,无回归锁定**。`mcpConfig.test.ts` 校验列表(8 个负向用例)与 `mcpRoutes.test.ts` PUT 系列均无 env 用例。\n\n**3. 消费方盘点** — 后端 4 处:shared 类型(index.ts:80 无 env)、mcpConfig 校验(48-62)、**routes.ts PUT 只挑已知字段组装(93-101,未知字段 env 被丢弃)**、**mcpTools.ts:225 connect() 不传 env(根因)**。前端:McpPanel.vue 表单只有 name/command/args,无编辑表单;`useAgent.ts:223` PUT 请求体写死 4 字段。**关键风险:PUT 是字段级替换(mcpRoutes.test.ts:108-123 已断言),若不改 useAgent.ts,前端 toggleEnabled 会把手写 mcp.json 的 env 静默抹掉**。\n\n**4. 回归风险** — 低:无 env 断言存在;ECHO_SERVER 不依赖环境变量。唯一行为决策点是全量 process.env 继承会扩大敏感信息暴露面。\n\n**建议修复点**:shared 类型 + mcpConfig 校验 + routes.ts 透传 + mcpTools.ts 传 env(保守方案直接传 `config.env`)+ useAgent.ts 发送 env(防数据丢失);McpPanel.vue env 输入框与 docs/mcp.md 为可选配套;测试补 3 个文件的正向/负向用例(含真实 stdio env 注入断言)。",
+      "artifact": ".wf-runs/6238693e/01-exploration-1.md",
+      "sessionFile": "sessions/3559367b-f016-4fd5-aec7-87df6c60414f/sub/6238693e/2026-08-05T08-23-17-217Z_019fd105-0de1-7548-8ebe-f6a4658a9645.jsonl",
+      "ts": 1785918341432
+    },
+    {
+      "callId": "call_00_Epl8czcbrE0d1hbn37tq8621",
+      "agent": "planner",
+      "summary": "实施计划已写入 `.wf-runs/6238693e/02-plan-1.md`。摘要如下:\n\n## 计划摘要\n\n**目标**:全链路打通 MCP server 配置 `env` 字段(类型 → 校验 → 存储透传 → 连接注入 → 前端防抹掉),保守方案(只传 `config.env`,不展开 process.env,与 SDK 白名单合并语义一致)。\n\n**5 处代码改动(按依赖顺序)**:\n1. `packages/shared/src/index.ts`(McpServerConfig,~L91):加 `env?: Record<string, string>` + JSDoc;**改后必须先 `pnpm --filter @workflows/shared build`**(api/web 消费 dist 类型,已核实 package.json exports)\n2. `apps/api/src/mcpConfig.ts`(validateMcpServers):env 校验——非对象/数组/null/值非字符串 → 中文错误零写入\n3. `apps/api/src/agent/routes.ts`(PUT handler L93-101):readJson 泛型加 `env?: unknown` + 组装透传(与 args/enabled 同模式)\n4. `apps/api/src/pi/mcpTools.ts`(connect() L225-229):`StdioClientTransport` 加 `env: this.config.env`;testMcpServer 走同路径自动生效\n5. `apps/web/src/composables/useAgent.ts`(saveMcpServer):body 加 `env: server.env`(选裸透传而非 `?? {}`,避免 UI 保存写出 `\"env\": {}` 污染磁盘)\n\n**测试(3 个文件)**:mcpConfig.test.ts 正向往返 + 5 个负向 it.each;mcpRoutes.test.ts PUT env 落盘 + 2 个 400 零写入(+1 可选覆盖语义用例);mcpTools.test.ts 新增独立 `ENV_SERVER_SCRIPT` 真实 stdio 集成用例——注入 `MCP_TEST_ENV` 断言生效、父进程设 `MCP_ABSENT_KEY` 断言不透传(锁定保守语义;降级方案为 vi.doMock 捕获构造参数,已注明复杂度)。\n\n**不做**:McpPanel.vue 不加 env 输入框;不展开 process.env;不加 cwd/timeoutMs;docs/mcp.md 为可选低成本同步(§1 字段清单、§5 写校验、§6 安全说明)。\n\n**验证**:shared build → 定向三测试文件 → api 全量 test → api/web typecheck。\n\n**关键风险**:shared 构建产物陈旧(流程性,已前置)、PUT 字段级替换抹 env(前端修复 + 测试记录语义)、SDK 升级(集成测试兜底)。回滚:5 文件纯增量、无迁移,单 commit revert 即可。",
+      "artifact": ".wf-runs/6238693e/02-plan-1.md",
+      "sessionFile": "sessions/3559367b-f016-4fd5-aec7-87df6c60414f/sub/6238693e/2026-08-05T08-25-49-688Z_019fd107-6178-7984-9bd0-9440471c2c74.jsonl",
+      "ts": 1785918512918
+    },
+    {
+      "callId": "call_00_nc11SlZK8TyjYuuWkXjT3258",
+      "agent": "executor",
+      "summary": "## 执行摘要\n\n按计划 `.wf-runs/6238693e/02-plan-1.md` 全部完成,执行报告已写入 `.wf-runs/6238693e/03-execution-1.md`。\n\n**代码改动(5 处)**\n- `packages/shared/src/index.ts`:`McpServerConfig` 加 `env?: Record<string, string>` + JSDoc(改后立即重建 shared)\n- `apps/api/src/mcpConfig.ts`:`validateMcpServers` 加 env 校验(null/非对象/数组/值非字符串 → 中文错误,零写入)\n- `apps/api/src/agent/routes.ts`:PUT 路由 readJson 泛型加 `env?: unknown` + 组装对象透传 env\n- `apps/api/src/pi/mcpTools.ts`:`StdioClientTransport` 加 `env: this.config.env`(保守方案,不展开 process.env)\n- `apps/web/src/composables/useAgent.ts`:PUT body 加 `env: server.env`(裸透传,防 UI 保存抹掉手写 env)\n\n**测试(3 个文件)** mcpConfig.test.ts(正向往返 1 + 负向 it.each 5 条)、mcpRoutes.test.ts(PUT env 落盘 + 非法 400 零写入 ×2 + 覆盖清空语义)、mcpTools.test.ts(真实 stdio 集成:ENV_SERVER_SCRIPT 回传环境变量,断言 `MCP_TEST_ENV` 注入生效、白名单外 `MCP_ABSENT_KEY` 不透传——一次成功,未用降级方案)。\n\n**文档** docs/mcp.md §1/§5/§6 三处同步 env 说明。\n\n**验证结果**\n- `pnpm --filter @workflows/shared build` ✅\n- `pnpm --filter @workflows/api test` ✅ 14 files / 278 passed / 1 skipped,零回归\n- `pnpm --filter @workflows/api typecheck` ✅、`pnpm --filter @workflows/web typecheck` ✅\n- `pnpm --filter @workflows/api lint`、`pnpm --filter @workflows/web lint` ✅\n\n**未完成项**:无(计划内全部项含可选文档均完成)。",
+      "artifact": ".wf-runs/6238693e/03-execution-1.md",
+      "sessionFile": "sessions/3559367b-f016-4fd5-aec7-87df6c60414f/sub/6238693e/2026-08-05T08-29-46-168Z_019fd10a-fd38-7ea4-8803-4908ccb1c6e1.jsonl",
+      "ts": 1785918678385
+    },
+    {
+      "callId": "call_00_ET_jNgC66UmEqJfp2PqzfgT5529",
+      "agent": "reviewer",
+      "summary": "审查完成,结论:**pass**。报告已写入 `.wf-runs/6238693e/04-review-1.md`。\n\n## 摘要\n\n**逐条核对(9 处全部通过):**\n- **shared 类型**(A1):`env?: Record<string, string>` + JSDoc 到位,`dist/index.d.ts` 已重建(api/web 消费 dist,重建正确)\n- **校验**(A2):undefined 放行;null/数组/非对象/值非字符串四类非法形态全拦截,错误文案与计划逐字一致,零写入\n- **PUT 透传**(A3):readJson 泛型 + 组装对象均含 env;非法 400 且 mcp.json 字节不变\n- **连接注入**(A4):`env: this.config.env` 保守方案,未展开 process.env\n- **前端**(A5):`env: server.env` 裸透传(非 `?? {}`),toggleEnabled spread 链路闭合\n\n**SDK 语义独立核实**:直接读了安装的 `@modelcontextprotocol/sdk@1.30.0` `stdio.js` 源码,`env: { ...getDefaultEnvironment(), ...this._serverParams.env }` 与计划声称完全一致;白名单合并、undefined 时 no-op,未配 env 行为不变。\n\n**测试质量**:mcpTools 集成测试是真实 spawn(非 mock),同时断言注入生效 + 白名单外父进程变量不透传,真实锁定保守语义;mcpConfig 负向 5 条、mcpRoutes 4 条全部按计划落地。\n\n**范围控制**:McpPanel.vue 零 env 引用(无输入框)、无 cwd/timeoutMs、无 process.env 展开,全仓仅一处 StdioClientTransport 构造。\n\n**非阻断观察 4 条**(详见报告):Date 类对象校验边界(JSON 不可达)、SDK 白名单变更致集成用例误红(版本已锁)、执行报告日期占位符、测试结果无法在本环境独立复跑。\n\n**最终建议:通过**。",
+      "artifact": ".wf-runs/6238693e/04-review-1.md",
+      "sessionFile": "sessions/3559367b-f016-4fd5-aec7-87df6c60414f/sub/6238693e/2026-08-05T08-31-25-136Z_019fd10c-7fd0-7c3a-867f-358116516de6.jsonl",
+      "ts": 1785918769213
+    }
+  ]
+}

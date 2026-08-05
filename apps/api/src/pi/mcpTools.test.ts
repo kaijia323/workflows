@@ -517,6 +517,25 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
 await server.connect(new StdioServerTransport());
 `
 
+/** 最小 stdio MCP server:env 工具回传自身环境变量(验证 env 注入) */
+const ENV_SERVER_SCRIPT = `
+import { Server } from '@modelcontextprotocol/sdk/server/index.js';
+import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { CallToolRequestSchema, ErrorCode, ListToolsRequestSchema, McpError } from '@modelcontextprotocol/sdk/types.js';
+const server = new Server({ name: 'env-server', version: '1.0.0' }, { capabilities: { tools: {} } });
+server.setRequestHandler(ListToolsRequestSchema, async () => ({
+  tools: [{ name: 'env', description: 'echo env', inputSchema: { type: 'object', properties: {} } }]
+}));
+server.setRequestHandler(CallToolRequestSchema, async (req) => {
+  if (req.params.name !== 'env') throw new McpError(ErrorCode.MethodNotFound, 'Unknown tool: ' + req.params.name);
+  return { content: [{ type: 'text', text: JSON.stringify({
+    MCP_TEST_ENV: process.env.MCP_TEST_ENV ?? null,
+    MCP_ABSENT_KEY: process.env.MCP_ABSENT_KEY ?? null,
+  }) }] };
+});
+await server.connect(new StdioServerTransport());
+`
+
 describe('真实 stdio 集成(最小 MCP server 往返)', () => {
   it('connect → listTools → callTool → close 全链路往返正确', async () => {
     const conn = new StdioMcpConnection(serverConfig('echo', { args: ['-e', ECHO_SERVER_SCRIPT] }))
@@ -567,5 +586,25 @@ describe('真实 stdio 集成(最小 MCP server 往返)', () => {
     )
     await expect(conn.connect()).rejects.toThrow(/连接超时/)
     await conn.close().catch(() => {})
+  })
+
+  it('env 注入:config.env 传入子进程;白名单外父进程变量不透传(保守语义锁定)', async () => {
+    // 父进程显式设置但不在 SDK 白名单:保守语义下不得到达子进程(若将来改成 {...process.env, ...config.env} 此断言变红)
+    const prev = process.env.MCP_ABSENT_KEY
+    process.env.MCP_ABSENT_KEY = 'should-not-leak'
+    const conn = new StdioMcpConnection(
+      serverConfig('env', { args: ['-e', ENV_SERVER_SCRIPT], env: { MCP_TEST_ENV: 'injected' } }),
+    )
+    try {
+      await conn.connect()
+      const result = await conn.callTool('env', {})
+      const text = result.content[0].type === 'text' ? result.content[0].text : ''
+      expect(text).toContain('"MCP_TEST_ENV":"injected"')
+      expect(text).toContain('"MCP_ABSENT_KEY":null')
+    } finally {
+      await conn.close()
+      if (prev === undefined) delete process.env.MCP_ABSENT_KEY
+      else process.env.MCP_ABSENT_KEY = prev
+    }
   })
 })

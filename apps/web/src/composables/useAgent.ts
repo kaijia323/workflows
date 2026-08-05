@@ -229,6 +229,9 @@ export function useAgent() {
         command: server.command,
         args: server.args ?? [],
         enabled: server.enabled ?? false,
+        // 透传 env:有值保留(防 toggleEnabled 等 spread 保存把手写 env 抹掉);
+        // undefined 时 JSON.stringify 自动省略该键,磁盘不写出 "env": {}
+        env: server.env,
       }),
     })
     await refreshMcp()

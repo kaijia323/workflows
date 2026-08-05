@@ -226,6 +226,9 @@ export class StdioMcpConnection implements McpConnection {
       command: this.config.command,
       args: this.config.args ?? [],
       stderr: 'pipe',
+      // 保守语义:只传 config.env,不展开 process.env;SDK 内部与白名单(HOME/PATH/...)合并,
+      // undefined 时展开为 no-op,行为与现状(仅白名单)一致
+      env: this.config.env,
     })
     // 立即挂 drain:PassThrough 流有 data 监听即持续消费,不背压阻塞子进程
     const stderr = transport.stderr

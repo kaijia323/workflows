@@ -82,6 +82,15 @@ describe('saveMcpServers 存取往返', () => {
     expect(loadMcpServers(store)).toEqual([{ name: 'fs', command: 'node' }])
   })
 
+  it('env 合法对象:存取往返一致,磁盘保留 env', () => {
+    const store = makeStore()
+    const env = { DISPLAY: ':0', XAUTHORITY: '/tmp/x' }
+    saveMcpServers(store, [{ name: 'browser', command: 'npx', env }])
+    expect(loadMcpServers(store)).toEqual([{ name: 'browser', command: 'npx', env }])
+    const parsed = JSON.parse(diskContent(store)) as { mcpServers: Array<{ env?: Record<string, string> }> }
+    expect(parsed.mcpServers[0].env).toEqual(env)
+  })
+
   it('saveMcpServers 返回传入的 servers', () => {
     const store = makeStore()
     const servers = [validServer]
@@ -99,6 +108,11 @@ describe('校验失败零写入', () => {
     ['空 command', { ...validServer, command: '  ' }],
     ['args 含非字符串', { ...validServer, args: ['ok', 42] }],
     ['enabled 非布尔', { ...validServer, enabled: 'yes' }],
+    ['env 非对象(字符串)', { ...validServer, env: 'x' }],
+    ['env 为数组', { ...validServer, env: ['A=1'] }],
+    ['env 为 null', { ...validServer, env: null }],
+    ['env 值非字符串', { ...validServer, env: { A: 1 } }],
+    ['env 值为布尔', { ...validServer, env: { A: true } }],
   ])('%s → 抛 Error 且文件内容未变', (_label, bad) => {
     const store = makeStore()
     saveMcpServers(store, [validServer])

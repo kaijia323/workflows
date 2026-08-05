@@ -90,14 +90,15 @@ export function registerAgentRoutes(app: Hono, store: WorkflowsStore, pi: PiAgen
   // 新增/更新 server(upsert 语义;name 以 URL 参数为准;校验失败 400 零写入)
   app.put('/api/agent/mcp/:name', async (c) => {
     const name = c.req.param('name')
-    const raw = await readJson<{ command?: unknown; args?: unknown; enabled?: unknown }>(c)
+    const raw = await readJson<{ command?: unknown; args?: unknown; enabled?: unknown; env?: unknown }>(c)
     const server: McpServerConfig = {
       name,
       command: typeof raw?.command === 'string' ? raw.command : '',
-      // 透传原始值:args/enabled 不做类型收窄,由存储层 validateMcpServers 统一校验
-      // (非数组 args / 非布尔 enabled → 400,校验失败零写入)
+      // 透传原始值:args/enabled/env 不做类型收窄,由存储层 validateMcpServers 统一校验
+      // (非数组 args / 非布尔 enabled / 非对象 env → 400,校验失败零写入)
       args: raw?.args as string[] | undefined,
       enabled: raw?.enabled as boolean | undefined,
+      env: raw?.env as Record<string, string> | undefined,
     }
     try {
       upsertMcpServer(store, server)

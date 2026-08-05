@@ -58,6 +58,12 @@ function validateMcpServers(servers: McpServerConfig[]): void {
       throw new Error(`MCP server「${s.name}」的 args 必须是字符串数组`)
     }
     if (s.enabled !== undefined && typeof s.enabled !== 'boolean') throw new Error(`MCP server「${s.name}」的 enabled 必须是布尔值`)
+    if (
+      s.env !== undefined &&
+      (typeof s.env !== 'object' || s.env === null || Array.isArray(s.env) || Object.values(s.env).some((v) => typeof v !== 'string'))
+    ) {
+      throw new Error(`MCP server「${s.name}」的 env 必须是字符串键值对对象(值必须为字符串)`)
+    }
   }
 }
 

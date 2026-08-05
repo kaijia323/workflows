@@ -13,7 +13,7 @@ v1 范围:
 
 - 传输:仅 **stdio**(`StdioClientTransport`);HTTP/SSE/Streamable HTTP 不在 v1
 - 能力:仅 `tools/list` + `tools/call`;prompts / resources 不在 v1(pi SDK ResourceLoader 无 MCP 桥接点)
-- 配置面:最小四字段 `name / command / args / enabled`;无每工具级 enable、无 `env`/`cwd`/`timeoutMs` 字段
+- 配置面:`name / command / args / enabled / env`;无每工具级 enable、无 `cwd`/`timeoutMs` 字段
 - **不把 mcpServers 并入 config.json**:配置划分更清晰(见 §5 决策记录)
 
 ## 2. 架构
@@ -73,7 +73,7 @@ piService.openSession / subAgent.runSubAgent ──▶ createMcpTools(manager, s
 | 定位 | `mcpConfigPath(store) = path.join(store.root, 'mcp.json')`;`WorkflowsStore` 接口零改动 |
 | 复用 | config.ts 的 `readJson`/`writeJson`(该两函数加 `export`,config.ts 唯一改动);`StoredConfig` 零改动 |
 | 读取容错 | 文件缺失 / JSON 损坏 / mcpServers 缺失或非数组 → `[]`(不阻塞会话打开);读取不做逐项校验 |
-| 写校验 | `saveMcpServers` 先全量校验(名 / 重名 / command / args / enabled),**任一失败抛错(中文)零写入** |
+| 写校验 | `saveMcpServers` 先全量校验(名 / 重名 / command / args / enabled / env),**任一失败抛错(中文)零写入** |
 | 原子写 | 先写 `<file>.tmp` 再 `renameSync` 原子替换(同目录 rename 原子,写入中断不留半截文件) |
 | 并发写 | 与 config.json 同模式:**无 mutex/lock** —— 同步 `writeFileSync`/`renameSync`,Node 单线程事件循环下天然串行 |
 | enabled 缺省 | 存储层保留原值不补写(文件最小 diff);opt-in(`enabled !== true` 不注册)在消费端 `createMcpTools` 实现 |
@@ -87,7 +87,8 @@ piService.openSession / subAgent.runSubAgent ──▶ createMcpTools(manager, s
    若把仓库本身添加为工作区,`.workflows/mcp.json` 即在工作区内,bash/write/edit 均可写
    (与 config.json 同一既有局限,非本次引入)。
    **信任模型**:agent 与 OS 用户同权限,workspaceGuard 是防误操作护栏而非安全边界(防误操作,不防恶意)
-2. **spawn 不经 shell**:`StdioClientTransport({ command, args })` 直接 spawn,args 作为 argv 传递,无 shell 注入面
+2. **spawn 不经 shell**:`StdioClientTransport({ command, args })` 直接 spawn,args 作为 argv 传递,无 shell 注入面;
+   **env 仅取配置显式声明值**(与 SDK 白名单 HOME/PATH/SHELL 等合并后传入,同键覆盖),不继承完整父进程环境
 3. **只读工作区不注册 MCP 工具**:只读语义 = 只读;MCP 工具可能产生工作区外副作用,一律不注册
    (主代理 `openSession` 与子代理 `runSubAgent` 双点一致)
 4. **信任模型**:MCP server = 用户显式配置的可信插件,与 OS 用户同权限;UI + README 显著风险提示;

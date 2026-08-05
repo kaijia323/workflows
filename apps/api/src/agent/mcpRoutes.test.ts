@@ -197,6 +197,79 @@ describe('/api/agent/mcp* 路由', () => {
     expect(existsSync(mcpConfigPath(store))).toBe(false)
   })
 
+  it('PUT 新增:env 透传落盘并返回', async () => {
+    const { app, store } = makeApp()
+    const { status, body } = await requestJson(app, '/api/agent/mcp/echo', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ command: 'node', args: ['-e', 'x'], enabled: true, env: { DISPLAY: ':0' } }),
+    })
+    expect(status).toBe(200)
+    expect(body.code).toBe(0)
+    const data = body.data as {
+      servers: Array<{ name: string; command: string; enabled: boolean; env?: Record<string, string> }>
+    }
+    expect(data.servers).toHaveLength(1)
+    expect(data.servers[0]).toMatchObject({ name: 'echo', command: 'node', enabled: true, env: { DISPLAY: ':0' } })
+    // 磁盘 mcp.json 内容保留 env
+    expect(diskServers(store)).toMatchObject({
+      mcpServers: [{ name: 'echo', command: 'node', args: ['-e', 'x'], enabled: true, env: { DISPLAY: ':0' } }],
+    })
+  })
+
+  it('PUT env 非对象(字符串)→ 400 且 mcp.json 未变', async () => {
+    const { app, store } = makeApp()
+    await requestJson(app, '/api/agent/mcp/echo', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ command: 'node' }),
+    })
+    const before = readFileSync(mcpConfigPath(store), 'utf-8')
+    const { status, body } = await requestJson(app, '/api/agent/mcp/echo', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ command: 'node', env: 'x' }),
+    })
+    expect(status).toBe(400)
+    expect(body.message).toContain('env 必须是字符串键值对对象')
+    expect(readFileSync(mcpConfigPath(store), 'utf-8')).toBe(before)
+  })
+
+  it('PUT env 值非字符串 → 400 且 mcp.json 未变', async () => {
+    const { app, store } = makeApp()
+    await requestJson(app, '/api/agent/mcp/echo', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ command: 'node' }),
+    })
+    const before = readFileSync(mcpConfigPath(store), 'utf-8')
+    const { status, body } = await requestJson(app, '/api/agent/mcp/echo', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ command: 'node', env: { A: 1 } }),
+    })
+    expect(status).toBe(400)
+    expect(body.message).toContain('env 必须是字符串键值对对象')
+    expect(readFileSync(mcpConfigPath(store), 'utf-8')).toBe(before)
+  })
+
+  it('PUT 覆盖不带 env → env 被清空(字段级替换语义,与 args 同构)', async () => {
+    const { app } = makeApp()
+    await requestJson(app, '/api/agent/mcp/echo', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ command: 'node', env: { DISPLAY: ':0' } }),
+    })
+    const { body } = await requestJson(app, '/api/agent/mcp/echo', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ command: 'python' }),
+    })
+    const data = body.data as { servers: Array<{ env?: Record<string, string> }> }
+    expect(data.servers).toHaveLength(1)
+    expect(data.servers[0].env).toBeUndefined()
+  })
+
   it('DELETE 存在 → 200 且列表减少;不存在 → 404', async () => {
     const { app } = makeApp()
     await requestJson(app, '/api/agent/mcp/echo', {

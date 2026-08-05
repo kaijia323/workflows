@@ -86,6 +86,8 @@ export interface McpServerConfig {
   args?: string[]
   /** 是否启用(新增默认 false,opt-in;缺省视为未启用,opt-in 语义在消费端 createMcpTools 实现) */
   enabled?: boolean
+  /** 传给 MCP server 子进程的环境变量(键值均为字符串);SDK 与白名单(HOME/PATH/SHELL 等)合并后传入,同键覆盖白名单 */
+  env?: Record<string, string>
 }
 
 /** MCP server 单个工具的展示信息(测试连接/状态面板用) */
