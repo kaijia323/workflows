@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
-import { ArrowUpDown, Pause } from '@lucide/vue'
+import { ArrowUpDown, Pause, X } from '@lucide/vue'
 import type { SkillInfo, SkillSource } from '@workflows/shared'
 import type { AgentStore, PlanBlock, UiMessage } from '../composables/useAgent'
 import { findToolSegment, hasThinking, isThinkingBlockOpen, messageText, planBlocks } from '../composables/useAgent'
@@ -238,14 +238,25 @@ async function handleSend() {
     const prefix = pendingImages.value.map((_img, i) => `[图片: ${paths[i]}]`).join(' ')
     const fullText = pendingImages.value.length > 0 ? `${prefix}${text ? ` ${text}` : ''}` : text
     const images = pendingImages.value.map((img, i) => ({ path: paths[i], thumb: img.thumb }))
+    // 消息发出即清空输入区待发图片(不再等流式回合结束,决策 6「发送成功清空」语义)。
+    // objectURL 此刻不 revoke:同一 URL 正被会话气泡 <img> 引用,提前 revoke 会导致气泡裂图
+    // (实测:src 设置前 revoke → broken;加载已开始后 revoke → 正常),故延后到发送成功后释放。
+    const sentImages = pendingImages.value.slice()
+    pendingImages.value = []
     draft.value = ''
     stickToBottom.value = true
     try {
       await props.agent.sendMessage(fullText, images.length > 0 ? images : undefined)
-      clearPendingImages() // 发送成功:清空并全部 revoke(决策 6)
+      // 发送成功:气泡已加载完成,释放发送图片的 objectURL(决策 6)
+      for (const img of sentImages) {
+        if (img.thumb) URL.revokeObjectURL(img.thumb)
+      }
     } catch (error) {
       sendError.value = error instanceof Error ? error.message : String(error)
-      draft.value = originalDraft // 发送失败:恢复输入草稿(待发图片保留,可直接重试,P2 修复)
+      draft.value = originalDraft // 发送失败:恢复输入草稿(P2 修复)
+      // 失败恢复待发图片(URL 未 revoke 仍有效,可直接重试,复用已上传 path 不重复上传);
+      // 与发送期间新粘贴的图片合并,避免覆盖用户新操作
+      pendingImages.value = [...sentImages, ...pendingImages.value]
     }
   } finally {
     sending.value = false
@@ -544,10 +555,10 @@ async function rejectPlan(): Promise<void> {
           <button
             type="button"
             aria-label="删除图片"
-            class="absolute -right-1.5 -top-1.5 grid size-4 place-items-center rounded-full border border-hairline bg-canvas text-mute hover:text-err"
+            class="absolute -right-1.5 -top-1.5 flex size-4 items-center justify-center rounded-full border border-hairline bg-canvas text-mute transition hover:text-err"
             @click="removeImage(i)"
           >
-            ×
+            <X class="size-3" />
           </button>
         </div>
         <span class="ml-auto shrink-0 font-mono text-[10px] text-mute">
