@@ -100,7 +100,7 @@ function formatDate(ts: number): string {
           >
             {{ ws.path }}
           </p>
-          <p class="mt-0.5 font-mono text-[10px] text-mute/70">
+          <p class="mt-0.5 font-mono text-[11px] text-mute">
             添加于 {{ formatDate(ws.createdAt) }}
           </p>
         </button>

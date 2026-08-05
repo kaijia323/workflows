@@ -380,7 +380,7 @@ onMounted(() => {
           >
             {{ listing?.path ?? '—' }}
           </p>
-          <p class="mt-1 font-mono text-[9px] leading-relaxed text-mute/80">
+          <p class="mt-1 font-mono text-[11px] leading-relaxed text-mute">
             {{ query.trim() ? `${filtered.length} 项匹配` : `${listing?.entries.length ?? 0} 项` }}
             · ⏎ 进入选中 · ⇥ 补全 · ↑↓ 选择 · ←/⌫ 上级 · 双击进入
           </p>

@@ -407,7 +407,7 @@ async function rejectPlan(): Promise<void> {
             >
               <span class="shrink-0 font-mono text-[12px] text-ink">/skill:{{ skill.name }}</span>
               <span class="min-w-0 flex-1 truncate text-[11px] text-mute">{{ skill.description }}</span>
-              <span class="shrink-0 rounded-sm border border-hairline px-1.5 py-px font-mono text-[9px] text-mute">
+              <span class="shrink-0 rounded-sm border border-hairline px-1.5 py-px font-mono text-[10px] text-mute">
                 {{ SOURCE_LABEL[skill.source] }}
               </span>
             </button>

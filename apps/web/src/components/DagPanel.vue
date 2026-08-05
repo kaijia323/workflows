@@ -204,7 +204,7 @@ function connectorClass(status: DagNodeState['status']): string {
           />
           <span
             v-if="nodes[3].rounds > 1"
-            class="absolute -right-1.5 -top-1.5 grid size-3.5 place-items-center rounded-sm border border-hairline bg-canvas font-mono text-[8px] text-body"
+            class="absolute -right-1.5 -top-1.5 grid size-3.5 place-items-center rounded-sm border border-hairline bg-canvas font-mono text-[10px] leading-none text-body"
           >{{ nodes[3].rounds }}</span>
         </span>
         <span class="font-display text-[10px] tracking-wider text-body">审查</span>

@@ -200,7 +200,7 @@ function fmt(n: number | undefined): string {
             />
             <span class="shrink-0 font-display text-[10px] tracking-wider text-body">{{ toolLabel(run.name) }}</span>
             <span class="min-w-0 flex-1 truncate font-mono text-[10px] text-mute">{{ run.name }}</span>
-            <span class="shrink-0 font-mono text-[10px] text-mute/70">{{ formatTime(run.ts) }}</span>
+            <span class="shrink-0 font-mono text-[11px] text-mute">{{ formatTime(run.ts) }}</span>
           </li>
         </ul>
         <p
