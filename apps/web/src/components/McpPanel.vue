@@ -4,6 +4,36 @@ import type { McpServerConfig, McpToolInfo } from '@workflows/shared'
 import type { AgentStore } from '../composables/useAgent'
 
 /**
+ * 解析 env 文本(每行 KEY=VALUE):
+ * - 空行忽略;行首尾空白忽略(trim);
+ * - 按【第一个】= 切分:key 取左侧并 trim,value 取右侧【原样保留】
+ *   (值允许含空格与 = 符号,如 `GREETING=hello world`、`URL=https://x?a=1`);
+ * - 无 = 或 = 开头(空 key)的行 → 返回错误(含行号与原文),零容忍整体拦截。
+ */
+function parseEnvText(text: string): { env: Record<string, string>; error: string | null } {
+  const env: Record<string, string> = {}
+  const lines = text.split('\n')
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim()
+    if (line === '') continue
+    const eq = line.indexOf('=')
+    if (eq <= 0) {
+      return {
+        env: {},
+        error: `env 第 ${i + 1} 行缺少「=」,每行需为 KEY=VALUE(如 API_KEY=sk-xxx):${line}`,
+      }
+    }
+    env[line.slice(0, eq).trim()] = line.slice(eq + 1)
+  }
+  return { env, error: null }
+}
+
+/** 列表摘要:KEY=VAL 以空格拼接(悬浮 title 展示完整原文) */
+function envSummary(env: Record<string, string>): string {
+  return Object.entries(env).map(([k, v]) => `${k}=${v}`).join(' ')
+}
+
+/**
  * MCP server 管理面板(内嵌于 ApiKeyModal 的第三个 section)。
  * 数据来自 agent.mcp(GET /api/agent/mcp);增删改/测试全部走 /api/agent/mcp*。
  */
@@ -12,6 +42,9 @@ const props = defineProps<{ agent: AgentStore }>()
 const nameInput = ref('')
 const commandInput = ref('')
 const argsInput = ref('')
+const envInput = ref('')
+/** env 表单级校验错误(非法行);独立于 error(API 错误),展示在 textarea 下方 */
+const envError = ref<string | null>(null)
 const saving = ref(false)
 const error = ref<string | null>(null)
 const saved = ref(false)
@@ -84,15 +117,25 @@ async function handleAdd(): Promise<void> {
   const name = nameInput.value.trim()
   const command = commandInput.value.trim()
   if (!name || !command || saving.value) return
+  // env 前端校验:非法行整体拦截,不发起请求(后端 400 兜底,但结构化数据在前端先给明确提示)
+  const parsed = parseEnvText(envInput.value)
+  if (parsed.error) {
+    envError.value = parsed.error
+    return
+  }
   saving.value = true
   error.value = null
+  envError.value = null
   saved.value = false
   try {
     const args = argsInput.value.trim() === '' ? [] : argsInput.value.trim().split(/\s+/)
-    await props.agent.saveMcpServer({ name, command, args, enabled: false })
+    // 空 env 传 undefined:useAgent 的 JSON.stringify 自动省略该键,磁盘不写出 "env": {} (与 useAgent.ts 注释一致)
+    const env = Object.keys(parsed.env).length > 0 ? parsed.env : undefined
+    await props.agent.saveMcpServer({ name, command, args, enabled: false, env })
     nameInput.value = ''
     commandInput.value = ''
     argsInput.value = ''
+    envInput.value = ''
     saved.value = true
     void handleTest(name)
   } catch (e) {
@@ -180,6 +223,13 @@ async function handleDelete(name: string): Promise<void> {
               :title="`${server.command} ${(server.args ?? []).join(' ')}`"
             >
               {{ server.command }} {{ (server.args ?? []).join(' ') }}
+            </p>
+            <p
+              v-if="server.env && Object.keys(server.env).length > 0"
+              class="mt-0.5 truncate font-mono text-[10px] text-mute"
+              :title="envSummary(server.env)"
+            >
+              env: {{ envSummary(server.env) }}
             </p>
           </div>
           <span
@@ -287,6 +337,20 @@ async function handleDelete(name: string): Promise<void> {
         placeholder="args(空格分隔,如 -y @modelcontextprotocol/server-github;不含 shell 语法)"
         class="mt-2 w-full rounded-sm border border-hairline bg-canvas-soft px-3 py-2 font-mono text-xs text-ink placeholder:text-mute focus:border-primary"
       >
+      <textarea
+        v-model="envInput"
+        rows="3"
+        spellcheck="false"
+        placeholder="env(每行一个 KEY=VALUE,如 API_KEY=sk-xxx;值可含空格与 =,按第一个 = 切分;空行忽略)"
+        class="mt-2 w-full resize-y rounded-sm border border-hairline bg-canvas-soft px-3 py-2 font-mono text-xs text-ink placeholder:text-mute focus:border-primary"
+        @input="envError = null"
+      />
+      <p
+        v-if="envError"
+        class="mt-1 font-mono text-[10px] text-err"
+      >
+        {{ envError }}
+      </p>
       <div class="mt-3 flex items-center justify-between">
         <span class="font-mono text-[10px] text-mute">新增默认不启用(opt-in)</span>
         <button

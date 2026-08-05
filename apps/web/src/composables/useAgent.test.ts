@@ -297,8 +297,8 @@ describe('useAgent MCP actions(/api/agent/mcp*)', () => {
           return jsonResponse({ servers, status: initialStatus })
         }
         if (url === '/api/agent/mcp/echo' && method === 'PUT') {
-          const body = JSON.parse(String(init?.body)) as { command?: string; enabled?: boolean }
-          servers = [{ name: 'echo', command: body.command, args: [], enabled: body.enabled }]
+          const body = JSON.parse(String(init?.body)) as { command?: string; enabled?: boolean; env?: Record<string, string> }
+          servers = [{ name: 'echo', command: body.command, args: [], enabled: body.enabled, env: body.env }]
           return jsonResponse({ servers, status: initialStatus })
         }
         if (url === '/api/agent/mcp/echo/test' && method === 'POST') {
@@ -329,6 +329,20 @@ describe('useAgent MCP actions(/api/agent/mcp*)', () => {
     await agent.saveMcpServer({ name: 'echo', command: 'node', enabled: true })
     expect(agent.mcp.value?.servers).toHaveLength(1)
     expect(agent.mcp.value?.servers[0]).toMatchObject({ name: 'echo', command: 'node', enabled: true })
+  })
+
+  it('saveMcpServer:PUT 透传 env(含空格与 = 的值)', async () => {
+    stubMcpApi([], [])
+    const agent = useAgent()
+    await agent.saveMcpServer({ name: 'echo', command: 'node', env: { FOO: 'bar', URL: 'https://x?a=1' } })
+    expect(agent.mcp.value?.servers[0].env).toEqual({ FOO: 'bar', URL: 'https://x?a=1' })
+  })
+
+  it('saveMcpServer:无 env 时请求体省略该键', async () => {
+    stubMcpApi([], [])
+    const agent = useAgent()
+    await agent.saveMcpServer({ name: 'echo', command: 'node' })
+    expect(agent.mcp.value?.servers[0].env).toBeUndefined()
   })
 
   it('testMcpServer:POST /api/agent/mcp/:name/test 透传返回', async () => {

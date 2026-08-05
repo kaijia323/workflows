@@ -1,0 +1,45 @@
+{
+  "runId": "daca693f",
+  "sessionId": "00973e64-05fd-4913-8504-cff2ffbd302e",
+  "status": "done",
+  "gate": {
+    "pending": false,
+    "planFile": null
+  },
+  "createdAt": 1785920239660,
+  "updatedAt": 1785921237352,
+  "agents": [
+    {
+      "callId": "call_00_9vm0KG7iZSuHLjB3LVst9749",
+      "agent": "explorer",
+      "summary": "探索完成,报告已写入 `.wf-runs/daca693f/01-exploration-1.md`。摘要如下:\n\n## 核心结论\n**后端与前端数据链路已全部支持 env,唯一缺口是 McpPanel.vue 的 UI 表单没有 env 输入,且没有编辑已有 server 的入口。**\n\n## 关键发现\n1. **模态窗结构**:`ApiKeyModal.vue`(壳,tabs:API Keys / MCP Servers)→ 内嵌 `McpPanel.vue`(MCP 面板)。当前表单仅 name/command/args 输入 + enabled 固定 false(opt-in);args 是单文本框 `split(/\\s+/)` 拆分;列表项只有启用开关/测试/删除,无编辑入口;前端校验仅 trim 非空,深层校验由后端 400 兜底。\n2. **API**:PUT `/api/agent/mcp/:name`(upsert)已读并透传 `env`(`raw?.env as Record<string,string> | undefined`),校验失败 400 零写入,保存后断旧连接;响应 `{code, message, data: mcpOverview()}`。\n3. **shared 类型**:`McpServerConfig.env?: Record<string, string>` ✅ 已存在。\n4. **后端链路**:`mcpConfig.ts` validateMcpServers 已校验 env(非数组非 null 对象且值全为 string);`mcpTools.ts` spawn 时 `env: config.env` 与白名单合并 ✅。\n5. **前端 composable**:`useAgent.saveMcpServer` 已透传 env(注释明确防 toggleEnabled spread 抹掉 env)✅。\n6. **测试现状**:vitest + @vue/test-utils + jsdom(`vitest.config.ts`);useAgent.test.ts 的 PUT stub 未覆盖 env;McpPanel/ApiKeyModal 无专属测试。\n7. **UI 风格**:无组件库,纯 Tailwind v4 语义色 + font-mono 小字号;args 用空格分隔文本(env 键值对不适合此方式,建议每行 `KEY=VALUE` 的 textarea)。\n\n## 建议改动范围\n- **必改(1 文件)**:`apps/web/src/components/McpPanel.vue` — 新增 env 输入(每行 KEY=VALUE textarea)+ 解析、handleAdd 透传 env、列表展示 env、(可选)编辑入口回填表单。\n- **建议(测试)**:`useAgent.test.ts` 补 env 透传断言;新增 `McpPanel.test.ts`(参考 WorkspacePickerModal.test.ts 模式)。\n- **无需改动**:shared 类型、routes.ts、mcpConfig.ts、mcpTools.ts、useAgent.ts。",
+      "artifact": ".wf-runs/daca693f/01-exploration-1.md",
+      "sessionFile": "sessions/3559367b-f016-4fd5-aec7-87df6c60414f/sub/daca693f/2026-08-05T08-57-19-665Z_019fd124-3831-7d9a-b4f1-ffc44e3f6aa5.jsonl",
+      "ts": 1785920314214
+    },
+    {
+      "callId": "call_00_L3FfkHbpQ4FpVgWkmf9p4545",
+      "agent": "planner",
+      "summary": "实施计划已写入 `.wf-runs/daca693f/02-plan-1.md`。摘要:\n\n**范围**:唯一生产改动为 `apps/web/src/components/McpPanel.vue`;测试改动 2 个文件;后端/类型/useAgent.ts 零改动(已复核链路完整)。\n\n**核心设计**:\n- env 编辑区 = 表单中 args 之后的全宽 textarea(`rows=3`,placeholder 中文格式说明,复用现有输入框样式范式)\n- `parseEnvText` 纯函数:每行 trim、空行忽略、**按第一个 `=` 切分**、key trim、值原样保留(允许空格与 `=`);无 `=` 或 `=` 开头 → 返回含行号的中文错误,handleAdd 拦截不提交,错误显示在 textarea 下方、`@input` 即清\n- handleAdd 传 `env`(空对象转 `undefined`,磁盘不写出 `\"env\": {}`),成功清空表单,自动测试逻辑不变;toggleEnabled 靠 spread + useAgent 透传天然保留 env\n- 列表条目 command 行下新增 `env: k=v k2=v2` 摘要(仅非空时),truncate + title 悬浮完整内容\n\n**测试**:新增 `McpPanel.test.ts`(6 用例:列表摘要、解析透传含空格/`=` 值、空 env→undefined、非法行拦截、错误清除、成功后清空,参考 WorkspacePickerModal.test.ts 的 mock store 模式);`useAgent.test.ts` 扩展 PUT stub 回写 env 并补 2 个透传用例。\n\n**验收**:9 条可核对清单(A1–A9),含 `cd apps/web && pnpm test` 全绿;风险表覆盖 `\\r\\n`、空 env 写盘、值 trim 语义等,回滚为单文件 git checkout。明确排除「编辑已有 server 入口」与后端改动。",
+      "artifact": ".wf-runs/daca693f/02-plan-1.md",
+      "sessionFile": "sessions/3559367b-f016-4fd5-aec7-87df6c60414f/sub/daca693f/2026-08-05T08-58-42-725Z_019fd125-7ca5-7113-9c7f-5850de1a921c.jsonl",
+      "ts": 1785920424829
+    },
+    {
+      "callId": "call_00_cD1nn8QAzWlMH2EZEOFF7342",
+      "agent": "executor",
+      "summary": "执行完成,全部按计划落实,零偏差。\n\n**改动文件(3 个)**\n1. `apps/web/src/components/McpPanel.vue` — 新增模块级纯函数 `parseEnvText`(空行忽略、按第一个 `=` 切分、key trim、值原样保留;非法行返回含行号中文错误)与 `envSummary`;新增 `envInput`/`envError` 状态;`handleAdd` 提交前拦截非法行、透传 env(空对象转 undefined)、成功后清空 envInput;表单新增 env textarea(rows=3、`@input` 清除错误);列表条目在 command 行下展示 `env: k=v k2=v2`(truncate + title 悬浮完整内容)。\n2. `apps/web/src/components/McpPanel.test.ts`(新增)— 6 用例:列表 env 摘要、解析透传(含空格/`=` 值、空行忽略)、空 env→undefined、非法行拦截不提交、编辑后错误清除、成功后清空表单。\n3. `apps/web/src/composables/useAgent.test.ts` — PUT stub 回写 env 字段;新增「透传 env」「无 env 省略键」2 个用例。\n\n**测试结果**:`pnpm test` 5 个文件 42 个用例全绿(含新增 8 个,无回归);`pnpm typecheck`(vue-tsc -b)通过。\n\n**与计划偏差**:无。未改动 packages/shared、routes.ts、mcpConfig.ts、mcpTools.ts、useAgent.ts。\n\n执行报告已写入 `.wf-runs/daca693f/03-execution-1.md`。",
+      "artifact": ".wf-runs/daca693f/03-execution-1.md",
+      "sessionFile": "sessions/3559367b-f016-4fd5-aec7-87df6c60414f/sub/daca693f/2026-08-05T09-09-40-741Z_019fd12f-8705-7096-a12b-8b3c5aef4475.jsonl",
+      "ts": 1785921081505
+    },
+    {
+      "callId": "call_00_bc1hbkr8T7RYJWBAg1D08597",
+      "agent": "reviewer",
+      "summary": "**审查结论:pass**(已写入 `.wf-runs/daca693f/04-review-1.md`)\n\n摘要:\n- **A1–A9 全部通过**:env textarea 位置/样式/placeholder 与计划逐字一致;parseEnvText 按第一个 `=` 切分、key trim、值原样保留、空行忽略,边界(空行/`\\r\\n`/含空格与 `=` 的值/`=xxx`/超长 key)全部符合计划语义;非法行前端拦截含行号文案且 `saveMcpServer` 不被调用;空 env 转 `undefined`(组件层 + useAgent 请求体双层验证,JSON.stringify 省略键不写盘);toggleEnabled spread 保留 env 零改动;6+2 新用例均为真实断言,mock 模式与 WorkspacePickerModal.test.ts 惯例一致。\n- **非阻断问题 3 条**(均为可选打磨):① handleAdd 校验失败提前 return 未清 `saved`,可能与「已保存」提示同屏(McpPanel.vue L118-119,计划内取舍);② `=xxx` 行与无 `=` 行共用「缺少「=」」文案略不准确(L23);③ `\\r\\n`/`=xxx`/重复 key 无直接测试断言。\n- **限制说明**:审查环境无 shell 工具,`pnpm test`/`typecheck` 未能独立重跑,基于执行报告(42/42 绿)+ 全量静态推演交叉核对,二者一致。\n\n**最终建议:通过**。",
+      "artifact": ".wf-runs/daca693f/04-review-1.md",
+      "sessionFile": "sessions/3559367b-f016-4fd5-aec7-87df6c60414f/sub/daca693f/2026-08-05T09-11-26-580Z_019fd131-2474-7bd9-9b16-a8cd70f86ed9.jsonl",
+      "ts": 1785921232564
+    }
+  ]
+}
