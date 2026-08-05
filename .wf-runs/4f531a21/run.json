@@ -1,0 +1,53 @@
+{
+  "runId": "4f531a21",
+  "sessionId": "6e49771a-e9bd-4c5b-b675-4f9d4dfcaca1",
+  "status": "executing",
+  "gate": {
+    "pending": false,
+    "planFile": ".wf-runs\\4f531a21\\02-plan-2.md"
+  },
+  "createdAt": 1785946353436,
+  "updatedAt": 1785947749684,
+  "agents": [
+    {
+      "callId": "call_00_djo9nQgI0feU7mqIf7nn2002",
+      "agent": "explorer",
+      "summary": "探索完成,报告已写入 `.wf-runs/4f531a21/01-exploration-1.md`。\n\n**摘要:**\n\n1. **技术栈**:pnpm + Turborepo monorepo。`apps/api` = Hono + **pi SDK**(`@earendil-works/pi-ai@0.83.0` / `pi-coding-agent@0.83.0`),`apps/web` = Vue 3 + Vite + Tailwind v4,`packages/shared` = 纯类型。构建 `pnpm build`,dev 15200/3000,prod 5200。\n\n2. **LLM 接入**:全部经 pi SDK,唯一接入点是 `apps/api/src/pi/piService.ts` 的 `ModelRuntime`(`create()` 时 `setRuntimeApiKey('deepseek', key)`);provider 名 `'deepseek'` 硬编码于 piService/config/routes/shared/ApiKeysPanel/ChatPane 多处。模型目录 = pi-ai 内置 `dist/providers/data/*.json` + pi.dev 远端 overlay(缓存于 `.workflows/agent/models-store.json`,当前仅 deepseek)。\n\n3. **Provider 抽象层**:在 node_modules 内——pi-ai `createProvider({id, name, baseUrl, auth, models, api})`(dist/models.js)+ pi-coding-agent `ModelRuntime`(dist/core/model-runtime.js)。**关键发现:pi-ai 0.83.0 已内置 xiaomi provider**(`api.xiaomimimo.com/v1`,env `XIAOMI_API_KEY`),目录含 6 个 MiMo 模型,其中 **`mimo-v2-omni` 与 `mimo-v2.5` 为视觉模型(`input: [\"text\",\"image\"]`)**,底层零改动。仓库侧新增 provider 只需:泛化硬编码 deepseek(piService.ts/config.ts/routes.ts)、per-provider key 存储、UI 加 Xiaomi key 与模型按钮。\n\n4. **多模态现状**:SDK 能力完整(`ImageContent` base64 → openai `image_url` 序列化、`session.prompt(text, {images})` 支持),但仓库前端/SSE/历史渲染全是纯文本管道,无图片输入、无 image 事件类型;MCP 工具返回的图片被降级为 `[image, mime, bytes]` 占位文本。\n\n5. **配置**:`.workflows/config.json`(明文存单 apiKey/model/thinkingLevel,key 不回传前端);`.workflows/agent/auth.json` 当前为空,`models-store.json` 为目录缓存。\n\n**风险点**:deepseek 硬编码 5+ 处需全链路泛化;xiaomi 无 thinkingLevelMap 时思考级别全量开放需实测;模型 id 跨 provider 可能撞名;`setRuntimeApiKey` 会触发 pi.dev 网络刷新(离线注意)。可行性高,已给出四步实施建议(后端泛化 → 前端 UI → 视觉链路 → 验证清单)。",
+      "artifact": ".wf-runs\\4f531a21\\01-exploration-1.md",
+      "sessionFile": "sessions\\857395d8-e02b-4b8c-9b07-5144bbf849cd\\sub\\4f531a21\\2026-08-05T16-12-33-442Z_019fd2b2-af22-7ed7-a0a2-dfdcd824abfa.jsonl",
+      "ts": 1785946524550
+    },
+    {
+      "callId": "call_00_oxvDxMpZKmHXlL0UDIgt7887",
+      "agent": "planner",
+      "summary": "实施计划已写入 `.wf-runs/4f531a21/02-plan-1.md`。摘要如下:\n\n## 计划摘要\n\n**目标**:接入小米视觉模型(mimo-v2.5)识图能力 —— provider 泛化(deepseek 硬编码 → deepseek + xiaomi,零 node_modules 改动,直接用 pi-ai 内置 xiaomi provider)、per-provider key 存储/校验、图片上传 → SSE → `session.prompt(text, {images})` 视觉链路、会话内历史图片渲染。\n\n**关键设计决策**(计划 §2,含 ❓ 待拍板项):\n- **D1** 模型标识改复合 `provider:id`(兼容裸 id);**D2** key 存 `apiKeys` record + deepseek 旧字段双写(零迁移);**D3** `SUPPORTED_PROVIDERS=['deepseek','xiaomi']`;**D4** ❓ 已下线模型(mimo-v2-omni/pro/flash)从 UI 过滤、解析层保留;**D5** 图片前端压缩(2048px/5MB/8张)+ 后端双重校验;**D6** 切模型/发消息按当前模型 provider 校验 key;**D7** `MODEL_THINKING_OVERRIDES` 兜底 thinkingLevel(冒烟后按实测填充)。\n\n**实施分 4 个 Phase,各一个可回滚 commit**:\n1. **后端泛化**(c1):shared 类型、config.ts per-provider key、piService.ts 全链路 `'deepseek'` 去硬编码、routes.ts key 路由/prompt 校验\n2. **前端配置 UI**(c2):ApiKeysPanel 加 Xiaomi 输入、ChatPane 模型按钮泛化(消除 `replace('deepseek-','')`)\n3. **视觉链路**(c3):history.ts image block 渲染、piService.prompt 接 images、routes 图片校验、前端 `utils/image.ts` 压缩 + 附加/粘贴/预览、MessageBubble 渲染图片\n4. **验证**(c4):单测 + `verify-xiaomi.mjs`(仿 verify-anysearch,支持 `--base-url` 指本地 mock 离线验证)+ 🔑 真实 key 冒烟清单(7 项,含 models-store 出现 xiaomi 条目、传图回复、thinkingLevel 行为、历史回放、deepseek 回归)\n\n**需要用户提供/决策**:小米 API key(仅冒烟)、D4 下线模型清单、图片参数、thinkingLevel 兜底、MCP 图片是否后续迭代。\n\n**风险**:setRuntimeApiKey 网络刷新(内置目录兜底 + catch)、thinkingLevel 映射缺失(预置钩子)、模型撞名(复合标识)、图片体积(双重压缩/校验)、JSONL 膨胀(已知限制)。\n\n**验收标准**:12 条可核对清单 + deepseek 全流程回归 + 构建/类型检查/测试全绿。\n\n> 注:`.workflows/config.json` 中现有真实 key 未在任何产物中引用原文。",
+      "artifact": ".wf-runs\\4f531a21\\02-plan-1.md",
+      "sessionFile": "sessions\\857395d8-e02b-4b8c-9b07-5144bbf849cd\\sub\\4f531a21\\2026-08-05T16-16-07-228Z_019fd2b5-f23c-78c2-ba96-1444f09aa858.jsonl",
+      "ts": 1785946851867
+    },
+    {
+      "callId": "call_00_IP0eH2fiFIzIr9imr4m89636",
+      "agent": "explorer",
+      "summary": "(子代理未产出文本摘要)",
+      "artifact": ".wf-runs\\4f531a21\\01-exploration-1.md",
+      "sessionFile": "sessions\\857395d8-e02b-4b8c-9b07-5144bbf849cd\\sub\\4f531a21\\2026-08-05T16-24-56-365Z_019fd2be-052d-7342-811d-a05bf34aa612.jsonl",
+      "ts": 1785947118335
+    },
+    {
+      "callId": "call_00_he5rv8tyHQN2Dzn1H5WN2549",
+      "agent": "explorer",
+      "summary": "探索完成,报告已写入 `.wf-runs/4f531a21/01-exploration-3.md`。\n\n## 摘要\n\n**仓库**:Turborepo monorepo(api = Hono + pi SDK 0.83.0 + @modelcontextprotocol/sdk ^1.30.0;web = Vue 3;shared = 类型包)。\n\n**核心结论**\n\n1. **MCP 配置与注册机制**:用户外部 MCP server 配置存 `.workflows/mcp.json`(`mcpConfig.ts` 的 load/save/upsert/remove,校验失败零写入 + 原子写);`mcpTools.ts` 的 `createMcpTools()` 连接 server、拉 tools/list,包装为 `mcp__<server>__<tool>` 的 ToolDefinition,经主代理 `openSession()` 与子代理 `runSubAgent()` **双点注册** + 白名单;传输**仅 stdio**(`StdioClientTransport`,spawn 不经 shell,超时 connect/list 10s/call 60s),`McpConnection` 抽象是 HTTP/SSE 扩展点(SDK 已有 sse/streamableHttp/websocket 类可接远端 server)。\n\n2. **pi SDK 无任何内置 MCP API**(docs 与 dist 全无 mcp 字样)——MCP 客户端是仓库自建;SDK 注册工具入口是 `createAgentSession({ customTools, tools })` + `ToolDefinition`(execute 5 参,返回 `AgentToolResult.content: (TextContent|ImageContent)[]`)。\n\n3. **工具注入**:主代理 `openSession` 组装 builtin+fff+anysearch+mcp+编排工具,`tools` 白名单必须显式列入;子代理 `buildSubAgentTools` 同样双点维护;anysearch 等无 path 内置 HTTP 工具在只读工作区也注册(MCP 工具不注册)。\n\n4. **SSE 流回前端**:`tool_execution_start/update/end` → `tool_start/tool_update/tool_end`(`output` 为 string,`stringifyResult` JSON 序列化),前端 `useAgent.ts handleEvent` + `MessageBubble.vue` 折叠卡片 `<pre>` 纯文本渲染。\n\n5. **HTTP 调用范本**:`anySearchTools.ts callSearch`(fetch 注入、`AbortSignal.any([timeout, signal])`、Bearer key、错误分层、50KB 截断)——视觉工具直接照抄,endpoint 换 `https://api.xiaomimimo.com/v1/chat/completions`。\n\n6. **图片链路现状**:`AgentToolResult.content` 支持 `ImageContent{type:'image',data:base64,mimeType}`,但 SSE 事件/HistoryBlock/前端渲染全是纯文本管道,`mcpTools.ts` 把 MCP 图片降级为 `[image, mime, bytes]` 占位——返回图片需扩展类型与渲染(02-plan-1.md 已规划 image block)。\n\n**关键发现**:pi-ai 0.83.0 已内置 xiaomi provider(mimo-v2.5,`input:[\"text\",\"image\"]`,baseUrl 正是 api.xiaomimimo.com/v1,env `XIAOMI_API_KEY`);「内置 MCP 视觉理解工具」推荐走 **anysearch 模式的内置 HTTP 工具**(非 mcp.json 通道,仓库明确不做 MCP server 端),双点注册 + 白名单,key 复用 env+config 模式,可行性高;与既有 provider 泛化计划(02-plan-1)互补,共用 key 存储与图片链路扩展。",
+      "artifact": ".wf-runs\\4f531a21\\01-exploration-3.md",
+      "sessionFile": "sessions\\857395d8-e02b-4b8c-9b07-5144bbf849cd\\sub\\4f531a21\\2026-08-05T16-25-42-566Z_019fd2be-b9a6-7661-a279-79944ad36e50.jsonl",
+      "ts": 1785947376477
+    },
+    {
+      "callId": "call_00_VRi35SavQsj3eN71H7bI6973",
+      "agent": "planner",
+      "summary": "计划已重写并写入 `.wf-runs/4f531a21/02-plan-2.md`。摘要如下:\n\n## 计划摘要\n\n**路线**:内置 HTTP 视觉理解工具(`vision-understand`),仿 `anySearchTools.ts` 模式直接 fetch 小米 OpenAI 兼容接口(`mimo-v2.5`);deepseek 保持主力文字模型,**不做 provider 泛化、不做模型切换、不做用户传图链路**(与旧计划 02-plan-1.md 的差异已逐条对照列于 §2)。\n\n**取舍说明(已写入计划)**:用户倾向「内置 MCP 视觉理解工具」,但探索确认仓库 MCP 通道是用户外部 stdio server 通道、v1 明确不做 MCP server 端、pi SDK 无内置 MCP API;自建 stdio server 进程违背「内置」且成本高 → 选 anysearch 式内置 HTTP 工具(§3 D1)。\n\n**核心设计**:\n- **工具**:`vision-understand`,参数 `image_path`(相对工作区根,守卫内置于工具,用 `isAllowedTargetPath` + skills 放行根)+ `question`;单图 ≤10MB、mime 白名单 jpeg/png/gif/webp、60s 超时、50KB 输出截断、错误分层仿 anysearch(§3 D2/D3/D8/D10)\n- **Key/开关**:config.json 新增 `visionEnabled`(默认关)+ `visionApiKey`(明文,key 不回传前端);env `XIAOMI_API_KEY` 优先;注册门 = 开关开且(env 或 config key),共用 `visionAvailable()` 单一事实源;开关翻转触发 `refreshOpenSessions()` 重建会话(仅 key 变更动态生效不重建);`mcpRebuildPending` 改名 `rebuildPending` 泛化(§3 D4/D6/D7)\n- **双点注册**:主代理 `openSession`(customTools + 白名单,只读工作区也注册)+ 子代理 `runSubAgent`/`buildSubAgentTools`(visionTools 参数传入,仿 mcpTools 模式)\n- **前端**:ApiKeyModal 新增「视觉模型」tab,新建 VisionPanel.vue(开关 + key 输入 + 保存 + 三态状态行),useAgent 增 `saveVisionConfig`\n- **结果回传**:纯文字描述(SSE 管道零改动);ImageContent 回传明确不做(v1)\n\n**实施**:Phase 0 基线 → Phase 1(c1 后端:visionTools.ts + config.ts + piService/subAgent 双点 + 路由 + 单测 + 文档)→ Phase 2(c2 前端:VisionPanel + ApiKeyModal + useAgent)→ Phase 3(c3 验证:`mock-xiaomi-server.mjs` + `verify-vision.mjs` + 🔑 真实 key 冒烟清单)。每 Phase 独立可回滚 commit;开关默认关 = 天然灰度(不开即零行为变化)。\n\n**需用户决策/提供**:小米 API key(冒烟)、工具名(默认 `vision-understand`)、单图 vs 多图数组参数(默认单图)、开关关闭时 agent 无视觉能力是否可接受(默认接受)、是否保留 env key 通道(默认保留)。",
+      "artifact": ".wf-runs\\4f531a21\\02-plan-2.md",
+      "sessionFile": "sessions\\857395d8-e02b-4b8c-9b07-5144bbf849cd\\sub\\4f531a21\\2026-08-05T16-29-55-353Z_019fd2c2-9519-7bd4-ae0b-60bfa4650396.jsonl",
+      "ts": 1785947638243
+    }
+  ]
+}
