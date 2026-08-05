@@ -232,7 +232,7 @@ async function rejectPlan(): Promise<void> {
 </script>
 
 <template>
-  <section class="flex min-w-0 flex-1 flex-col bg-canvas">
+  <section class="flex min-h-0 min-w-0 flex-1 flex-col bg-canvas">
     <!-- 工作区头部:处理节点标签 -->
     <div class="flex h-12 shrink-0 items-center gap-3 border-b border-hairline px-5">
       <template v-if="agent.activeWorkspace.value">
