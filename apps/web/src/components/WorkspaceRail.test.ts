@@ -79,6 +79,16 @@ describe('WorkspaceRail 动作行', () => {
     expect(removeWorkspace).not.toHaveBeenCalled()
   })
 
+  it('点击工作区行:先 emit select-workspace,再调用 openWorkspace', async () => {
+    const { wrapper, openWorkspace } = mountRail()
+
+    const rowBtn = wrapper.findAll('button').find((b) => b.text().includes('alpha'))!
+    await rowBtn.trigger('click')
+
+    expect(wrapper.emitted('selectWorkspace')).toHaveLength(1)
+    expect(openWorkspace).toHaveBeenCalledWith('ws-1')
+  })
+
   it('动作按钮可聚焦(键盘可达)', () => {
     const { wrapper } = mountRail(undefined, { attachTo: true })
     const removeBtn = wrapper.findAll('button').find((b) => b.text() === '移除')!

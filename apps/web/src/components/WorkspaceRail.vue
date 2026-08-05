@@ -9,7 +9,7 @@ import type { AgentStore } from '../composables/useAgent'
  * <1100px:侧栏脱离文档流变为左侧抽屉(open 控制滑入/滑出)。
  */
 const props = defineProps<{ agent: AgentStore; open: boolean }>()
-const emit = defineEmits<{ openPicker: [] }>()
+const emit = defineEmits<{ openPicker: []; selectWorkspace: [] }>()
 
 /** 抽屉根(打开时收焦;关闭时 invisible 不在 a11y 树/Tab 序中) */
 const root = ref<HTMLElement | null>(null)
@@ -78,7 +78,7 @@ function formatDate(ts: number): string {
               ? 'border-l-primary bg-canvas-soft'
               : 'border-l-transparent hover:bg-canvas-soft/60'
           "
-          @click="agent.openWorkspace(ws.id)"
+          @click="emit('selectWorkspace'); agent.openWorkspace(ws.id)"
         >
           <div class="flex items-center justify-between gap-2">
             <span

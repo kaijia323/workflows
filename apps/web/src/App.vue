@@ -77,6 +77,7 @@ onBeforeUnmount(() => {
         :agent="agent"
         :open="railOpen"
         @open-picker="showPicker = true"
+        @select-workspace="railOpen = false"
       />
 
       <!-- 中栏:窄视口开关条 + 聊天列(外包层保证 min-w-0,聊天列永不为 0) -->
