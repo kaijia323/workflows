@@ -59,6 +59,10 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+button:not(:disabled) {
+  cursor: pointer;
+}
+
 /* 细滚动条:符合仪表台气质 */
 *::-webkit-scrollbar {
   width: 8px;
