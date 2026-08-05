@@ -375,30 +375,54 @@ async function handleDelete(name: string): Promise<void> {
       @submit.prevent="handleSave"
     >
       <div class="grid grid-cols-2 gap-2">
-        <input
-          :value="nameInput"
-          :readonly="editingName !== null"
-          :title="editingName !== null ? 'name 不可修改;如需改名请删除后重新添加' : undefined"
-          :class="editingName !== null ? 'cursor-not-allowed opacity-60' : ''"
-          spellcheck="false"
-          placeholder="name(如 github)"
-          class="w-full rounded-sm border border-hairline bg-canvas-soft px-3 py-2 font-mono text-xs text-ink placeholder:text-mute focus:border-primary"
-          @input="editingName === null && (nameInput = ($event.target as HTMLInputElement).value)"
-        >
-        <input
-          v-model="commandInput"
-          spellcheck="false"
-          placeholder="command(如 npx)"
-          class="w-full rounded-sm border border-hairline bg-canvas-soft px-3 py-2 font-mono text-xs text-ink placeholder:text-mute focus:border-primary"
-        >
+        <div>
+          <label
+            for="mcp-name"
+            class="sr-only"
+          >名称</label>
+          <input
+            id="mcp-name"
+            :value="nameInput"
+            :readonly="editingName !== null"
+            :title="editingName !== null ? 'name 不可修改;如需改名请删除后重新添加' : undefined"
+            :class="editingName !== null ? 'cursor-not-allowed opacity-60' : ''"
+            spellcheck="false"
+            placeholder="name(如 github)"
+            class="w-full rounded-sm border border-hairline bg-canvas-soft px-3 py-2 font-mono text-xs text-ink placeholder:text-mute focus:border-primary"
+            @input="editingName === null && (nameInput = ($event.target as HTMLInputElement).value)"
+          >
+        </div>
+        <div>
+          <label
+            for="mcp-command"
+            class="sr-only"
+          >命令</label>
+          <input
+            id="mcp-command"
+            v-model="commandInput"
+            spellcheck="false"
+            placeholder="command(如 npx)"
+            class="w-full rounded-sm border border-hairline bg-canvas-soft px-3 py-2 font-mono text-xs text-ink placeholder:text-mute focus:border-primary"
+          >
+        </div>
       </div>
+      <label
+        for="mcp-args"
+        class="sr-only"
+      >参数</label>
       <input
+        id="mcp-args"
         v-model="argsInput"
         spellcheck="false"
         placeholder="args(空格分隔,如 -y @modelcontextprotocol/server-github;不含 shell 语法)"
         class="mt-2 w-full rounded-sm border border-hairline bg-canvas-soft px-3 py-2 font-mono text-xs text-ink placeholder:text-mute focus:border-primary"
       >
+      <label
+        for="mcp-env"
+        class="sr-only"
+      >环境变量</label>
       <textarea
+        id="mcp-env"
         v-model="envInput"
         rows="3"
         spellcheck="false"

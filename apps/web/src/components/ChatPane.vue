@@ -337,6 +337,7 @@ async function rejectPlan(): Promise<void> {
             批准执行
           </button>
           <input
+            id="reject-reason"
             v-model="rejectDraft"
             type="text"
             :disabled="agent.streaming.value"
@@ -377,6 +378,11 @@ async function rejectPlan(): Promise<void> {
 
       <div class="flex items-center gap-2">
         <div class="relative flex-1">
+          <!-- 可访问名称:主聊天输入框(placeholder 仅作格式示例) -->
+          <label
+            for="chat-input"
+            class="sr-only"
+          >消息输入</label>
           <!-- / skill 搜索下拉(选中后填入 /skill:<name>,由用户回车发送) -->
           <div
             v-if="skillMenuOpen"
@@ -405,6 +411,7 @@ async function rejectPlan(): Promise<void> {
             </p>
           </div>
           <textarea
+            id="chat-input"
             ref="textareaRef"
             v-model="draft"
             :disabled="!agent.activeWorkspaceId.value"

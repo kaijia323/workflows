@@ -71,7 +71,12 @@ async function handleAnySave() {
       class="mt-4"
       @submit.prevent="handleSave"
     >
+      <label
+        for="deepseek-key"
+        class="sr-only"
+      >DeepSeek API Key</label>
       <input
+        id="deepseek-key"
         v-model="keyInput"
         type="password"
         autocomplete="off"
@@ -129,7 +134,12 @@ async function handleAnySave() {
         class="mt-4"
         @submit.prevent="handleAnySave"
       >
+        <label
+          for="anysearch-key"
+          class="sr-only"
+        >AnySearch API Key</label>
         <input
+          id="anysearch-key"
           v-model="anyKeyInput"
           type="password"
           autocomplete="off"

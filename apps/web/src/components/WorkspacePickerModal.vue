@@ -293,7 +293,12 @@ onMounted(() => {
 
       <!-- 搜索输入:键盘操作全部汇聚于此 -->
       <div class="px-4 py-3">
+        <label
+          for="ws-picker-filter"
+          class="sr-only"
+        >过滤目录</label>
         <input
+          id="ws-picker-filter"
           ref="inputRef"
           v-model="query"
           type="text"
