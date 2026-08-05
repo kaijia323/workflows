@@ -11,12 +11,14 @@ const props = defineProps<{
   meta: { workflowsRoot: string; environment: string } | null
 }>()
 
-/** 开关本地态(默认取自后端配置;保存成功后由 refreshConfig 同步,本地不再回写) */
+/** 开关本地态(默认取自后端配置;保存成功后由 refreshConfig 同步,失败时回滚到后端值) */
 const visionOn = ref(props.agent.visionEnabled.value)
 const keyInput = ref('')
 const saving = ref(false)
 const error = ref<string | null>(null)
 const saved = ref(false)
+/** 显式清除 key 的两步确认态(防误触:首次点击进入确认,再次点击才执行) */
+const clearArmed = ref(false)
 
 /** 状态行:由开关 + 是否已配置 key 组合(三态) */
 function statusText(): { text: string; cls: string; dot: string } {
@@ -29,22 +31,57 @@ function statusText(): { text: string; cls: string; dot: string } {
   return { text: '已关闭(工具不可用)', cls: 'text-mute', dot: 'bg-mute' }
 }
 
+function toggleSwitch(): void {
+  visionOn.value = !visionOn.value
+  clearArmed.value = false
+}
+
 async function handleSave(): Promise<void> {
   if (saving.value) return
   saving.value = true
   error.value = null
   saved.value = false
+  clearArmed.value = false
   try {
-    // 开启时提交 key(空串 = 清空已配置 key);关闭时仅提交开关,key 保留(重新开启即恢复可用)
     if (visionOn.value) {
-      await props.agent.saveVisionConfig({ enabled: true, apiKey: keyInput.value })
+      // 开启时:key 输入为空 = 保留后端已配置 key(不提交 apiKey 字段,避免误清空);
+      // 仅在用户显式输入新 key 时才更新(清空 key 走下方显式「清除 key」按钮)
+      const patch: { enabled: boolean; apiKey?: string } = { enabled: true }
+      const key = keyInput.value.trim()
+      if (key) patch.apiKey = key
+      await props.agent.saveVisionConfig(patch)
     } else {
+      // 关闭时仅提交开关,key 保留(重新开启即恢复可用)
       await props.agent.saveVisionConfig({ enabled: false })
     }
     keyInput.value = ''
     saved.value = true
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e) // 失败保留输入
+    // 保存失败:开关本地态回滚到后端配置值,避免开关位置与状态行文案矛盾
+    visionOn.value = props.agent.visionEnabled.value
+  } finally {
+    saving.value = false
+  }
+}
+
+/** 显式清除后端已配置 key(两步确认防误触;env XIAOMI_API_KEY 优先的语义由后端负责) */
+async function handleClear(): Promise<void> {
+  if (!clearArmed.value) {
+    clearArmed.value = true
+    return
+  }
+  clearArmed.value = false
+  if (saving.value) return
+  saving.value = true
+  error.value = null
+  saved.value = false
+  try {
+    await props.agent.saveVisionConfig({ enabled: true, apiKey: '' })
+    keyInput.value = ''
+    saved.value = true
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : String(e)
   } finally {
     saving.value = false
   }
@@ -77,7 +114,7 @@ async function handleSave(): Promise<void> {
           :aria-label="visionOn ? '关闭视觉模型' : '开启视觉模型'"
           class="flex h-5 w-9 items-center rounded-full border border-hairline px-0.5 transition-colors duration-200"
           :class="visionOn ? 'bg-primary' : 'bg-canvas-soft'"
-          @click="visionOn = !visionOn"
+          @click="toggleSwitch"
         >
           <span
             class="size-4 rounded-full transition-transform duration-200"
@@ -116,13 +153,25 @@ async function handleSave(): Promise<void> {
             />
             {{ statusText().text }}
           </span>
-          <button
-            type="submit"
-            class="rounded-sm bg-primary px-4 py-1.5 font-display text-[11px] tracking-widest text-on-primary transition hover:bg-primary-soft disabled:opacity-40"
-            :disabled="saving"
-          >
-            {{ saving ? '保存中…' : '保存' }}
-          </button>
+          <div class="flex items-center gap-2">
+            <button
+              v-if="visionOn && agent.hasVisionApiKey.value"
+              type="button"
+              class="rounded-sm border border-hairline px-4 py-1.5 font-display text-[11px] tracking-widest transition disabled:opacity-40"
+              :class="clearArmed ? 'text-err' : 'text-mute hover:text-body'"
+              :disabled="saving"
+              @click="handleClear"
+            >
+              {{ clearArmed ? '确认清除?' : '清除 key' }}
+            </button>
+            <button
+              type="submit"
+              class="rounded-sm bg-primary px-4 py-1.5 font-display text-[11px] tracking-widest text-on-primary transition hover:bg-primary-soft disabled:opacity-40"
+              :disabled="saving"
+            >
+              {{ saving ? '保存中…' : '保存' }}
+            </button>
+          </div>
         </div>
       </form>
     </div>
