@@ -17,7 +17,7 @@
  * - key 只进 Authorization 头,绝不写入返回文本/日志/错误文案
  * - 三路输入(v1.1,可混用,顺序 = schema 声明序 path → data → url):
  *   1. image_paths[](工作区相对路径,沿用 v1 守卫 isAllowedTargetPath,推荐本机图片;
- *      工作区 .wf-uploads/ 下的上传图片亦在此列)
+ *      工作区 .workflows/uploads/ 下的上传图片亦在此列)
  *   2. image_data[](data URL 或裸 base64;mime 白名单 / 魔数嗅探 + 单张 ≤10MB)
  *   3. image_urls[](https URL;协议白名单(仅 https)+ 10s 超时 + 流式限流 +
  *      Content-Type/魔数双校验;下载结果转 data URL 进请求体,不直传 URL 给小米)
@@ -80,7 +80,7 @@ const visionSchema = Type.Object({
     Type.Array(Type.String(), {
       maxItems: MAX_IMAGES,
       description: '图片路径数组(推荐,本机图片):相对工作区根的图片文件路径,如 docs/diagram.png;' +
-        '工作区 .wf-uploads/ 下的上传图片(用户消息 [图片: …] 标记)亦可用本路分析',
+        '工作区 .workflows/uploads/ 下的上传图片(用户消息 [图片: …] 标记)亦可用本路分析',
     }),
   ),
   image_data: Type.Optional(
@@ -470,7 +470,7 @@ export function createVisionTools(options: VisionToolOptions): ToolDefinition[] 
       description:
         '视觉理解工具(小米 mimo-v2.5 视觉模型)。当用户要求描述/分析图片——截图、UI 图、流程图、' +
         '报错截图、示意图等——时使用;工具读取图片内容并返回文字描述(图片本身不回传)。' +
-        '用户消息中的 [图片: 路径] 标记对应工作区 .wf-uploads/ 下的上传图片,可用本工具分析。' +
+        '用户消息中的 [图片: 路径] 标记对应工作区 .workflows/uploads/ 下的上传图片,可用本工具分析。' +
         '前提:设置 → 视觉模型中已开启「视觉模型」开关并配置小米 API key(按量付费,不计入订阅/Token Plan);' +
         '开关关闭或未配置 key 时本工具不可用。' +
         '输入三路(可混用,最多 8 张、单张 ≤ 10MB、总量 ≤ 20MB):' +

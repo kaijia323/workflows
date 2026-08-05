@@ -13,8 +13,8 @@ import { extForMime, sniffMime } from '../pi/imageMime.js'
 import { testMcpServer } from '../pi/mcpTools.js'
 import { PiAgentService } from '../pi/piService.js'
 
-/** 上传目录名(点前缀隐藏,与 .wf-runs 同语义;工作区内,天然满足 isAllowedTargetPath) */
-const UPLOADS_DIR = '.wf-uploads'
+/** 上传目录(工作区内 .workflows/uploads;.workflows 整体被 git 忽略 + 目录内 .gitignore `*`,上传图片不进 git;工作区内,天然满足 isAllowedTargetPath) */
+const UPLOADS_DIR = '.workflows/uploads'
 /** 单张上限(与工具单图上限一致,后端兜底) */
 const UPLOAD_MAX_BYTES = 10 * 1024 * 1024
 /** 惰性清理阈值:同目录 mtime 早于该时长的文件在上传时删除(防孤儿堆积,决策 7) */
@@ -285,7 +285,7 @@ export function registerAgentRoutes(app: Hono, store: WorkflowsStore, pi: PiAgen
     })
   })
 
-  // 图片上传:前端粘贴压缩后的图片(base64)→ 写 <workspace>/.wf-uploads/<uuid>.<ext> → 返回相对路径
+  // 图片上传:前端粘贴压缩后的图片(base64)→ 写 <workspace>/.workflows/uploads/<uuid>.<ext> → 返回相对路径
   // (路径随消息文本走,方案 A;文件名服务端 randomUUID 生成,不信任客户端)
   app.post('/api/agent/workspaces/:id/uploads', async (c) => {
     const workspace = requireWorkspace(store, c.req.param('id'))

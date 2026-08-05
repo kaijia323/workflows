@@ -512,14 +512,14 @@ describe('useAgent 图片上传与发送(uploadImage / sendMessage images)', () 
     stubApiWithUpload((url, init) => {
       sentUrl = url
       sentBody = JSON.parse(String(init?.body))
-      return jsonResponse({ path: '.wf-uploads/abc.png' })
+      return jsonResponse({ path: '.workflows/uploads/abc.png' })
     })
     const agent = useAgent()
     await agent.init()
     await agent.openWorkspace('ws-1')
 
     const path = await agent.uploadImage('data:image/jpeg;base64,AAAA')
-    expect(path).toBe('.wf-uploads/abc.png')
+    expect(path).toBe('.workflows/uploads/abc.png')
     expect(sentUrl).toBe('/api/agent/workspaces/ws-1/uploads')
     // 纯 base64 payload(去 data: 前缀,后端魔数嗅探定 mime,不信客户端)
     expect(sentBody).toEqual({ data: 'AAAA' })
@@ -556,12 +556,12 @@ describe('useAgent 图片上传与发送(uploadImage / sendMessage images)', () 
     await agent.init()
     await agent.openWorkspace('ws-1')
 
-    const images = [{ path: '.wf-uploads/abc.png', thumb: 'blob:mock-thumb' }]
-    await agent.sendMessage('[图片: .wf-uploads/abc.png] 请分析', images)
+    const images = [{ path: '.workflows/uploads/abc.png', thumb: 'blob:mock-thumb' }]
+    await agent.sendMessage('[图片: .workflows/uploads/abc.png] 请分析', images)
 
     const first = agent.messages.value[0]
     expect(first.role).toBe('user')
-    expect(messageText(first)).toBe('[图片: .wf-uploads/abc.png] 请分析')
+    expect(messageText(first)).toBe('[图片: .workflows/uploads/abc.png] 请分析')
     expect(first.images).toEqual(images)
   })
 

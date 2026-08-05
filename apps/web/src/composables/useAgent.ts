@@ -671,7 +671,7 @@ export function useAgent() {
     }))
   }
 
-  /** 上传粘贴图片(压缩后 base64)→ 返回工作区相对路径(如 .wf-uploads/<uuid>.png) */
+  /** 上传粘贴图片(压缩后 base64)→ 返回工作区相对路径(如 .workflows/uploads/<uuid>.png) */
   async function uploadImage(dataUrl: string): Promise<string> {
     const workspaceId = activeWorkspaceId.value
     if (!workspaceId) throw new Error('请先选择工作区')

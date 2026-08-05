@@ -24,7 +24,7 @@ const PNG_BYTES = Buffer.from(PNG_1X1_BASE64, 'base64')
 /** 合法 JPEG 魔数(FF D8 FF …) */
 const JPEG_BYTES = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10]), Buffer.from('jfif-payload')])
 
-const UPLOADS_DIR = '.wf-uploads'
+const UPLOADS_DIR = '.workflows/uploads'
 const DAY_MS = 24 * 60 * 60 * 1000
 
 function makeStore(): WorkflowsStore {
@@ -104,14 +104,14 @@ describe('POST /api/agent/workspaces/:id/uploads', () => {
     vi.restoreAllMocks()
   })
 
-  it('成功:合法 PNG base64 → 200 + data.path 匹配 .wf-uploads/<uuid>.png,文件落盘且内容一致', async () => {
+  it('成功:合法 PNG base64 → 200 + data.path 匹配 .workflows/uploads/<uuid>.png,文件落盘且内容一致', async () => {
     const { app, store } = makeApp()
     const { wsPath, wsId } = registerWorkspace(store)
     try {
       const { status, body } = await postUpload(app, wsId, { data: PNG_1X1_BASE64 })
       expect(status).toBe(200)
       expect(body.code).toBe(0)
-      expect(body.data?.path).toMatch(/^\.wf-uploads\/[0-9a-f-]{36}\.png$/)
+      expect(body.data?.path).toMatch(/^\.workflows\/uploads\/[0-9a-f-]{36}\.png$/)
       // 文件落盘:字节与源一致(base64 往返)
       expect(readFileSync(path.join(wsPath, body.data!.path!)).equals(PNG_BYTES)).toBe(true)
       expect(readFileSync(path.join(wsPath, body.data!.path!), 'base64')).toBe(PNG_1X1_BASE64)
@@ -126,7 +126,7 @@ describe('POST /api/agent/workspaces/:id/uploads', () => {
     try {
       const { status, body } = await postUpload(app, wsId, { data: JPEG_BYTES.toString('base64') })
       expect(status).toBe(200)
-      expect(body.data?.path).toMatch(/^\.wf-uploads\/[0-9a-f-]{36}\.jpeg$/)
+      expect(body.data?.path).toMatch(/^\.workflows\/uploads\/[0-9a-f-]{36}\.jpeg$/)
       expect(readFileSync(path.join(wsPath, body.data!.path!)).equals(JPEG_BYTES)).toBe(true)
     } finally {
       // 同上
@@ -203,7 +203,7 @@ describe('POST /api/agent/workspaces/:id/uploads', () => {
     try {
       const { status, body } = await postUpload(app, wsId, { data: PNG_1X1_BASE64, fileName: '../../evil.png' })
       expect(status).toBe(200)
-      expect(body.data?.path).toMatch(/^\.wf-uploads\/[0-9a-f-]{36}\.png$/)
+      expect(body.data?.path).toMatch(/^\.workflows\/uploads\/[0-9a-f-]{36}\.png$/)
       expect(body.data?.path).not.toContain('evil')
       expect(existsSync(path.join(wsPath, 'evil.png'))).toBe(false)
       expect(existsSync(path.join(wsPath, '..', 'evil.png'))).toBe(false)
