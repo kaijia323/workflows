@@ -1,9 +1,23 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { computed, ref } from 'vue'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { SkillInfo } from '@workflows/shared'
 import type { AgentStore } from '../composables/useAgent'
+import { preparePastedImage } from '../utils/image'
 import ChatPane from './ChatPane.vue'
+
+// ---- 粘贴图片:mock 压缩工具模块(jsdom 无 canvas,双层 mock 第二层;真实压缩由浏览器冒烟覆盖) ----
+vi.mock('../utils/image', () => ({
+  preparePastedImage: vi.fn(async () => ({
+    uploadBlob: new Blob(),
+    uploadDataUrl: 'data:image/jpeg;base64,AAAA',
+    thumbUrl: 'blob:mock-thumb',
+  })),
+}))
+
+// jsdom 未实现 URL.createObjectURL / revokeObjectURL:stub 为确定性值
+URL.createObjectURL = vi.fn(() => 'blob:mock-thumb')
+URL.revokeObjectURL = vi.fn()
 
 function skill(name: string, source: SkillInfo['source'], description = `描述 ${name}`): SkillInfo {
   return {
@@ -30,6 +44,8 @@ interface PaneOptions {
   workspaceId?: string | null
   /** 挂载到 document.body(jsdom 仅在元素已连接时 focus() 才生效,用于焦点断言) */
   attachTo?: boolean
+  /** 只读工作区(粘贴图片拒绝场景) */
+  readOnly?: boolean
   config?: { model: string; models: Array<{ id: string }>; thinkingLevel: string; thinkingLevels: string[] }
 }
 
@@ -39,11 +55,12 @@ function mountPane(options: PaneOptions = {}) {
   const activeWorkspaceId = ref<string | null>(options.workspaceId === undefined ? 'ws-1' : options.workspaceId)
   const activeWorkspace = computed(() =>
     activeWorkspaceId.value
-      ? { id: activeWorkspaceId.value, path: 'C:\\ws', name: 'ws', readOnly: false, createdAt: 0 }
+      ? { id: activeWorkspaceId.value, path: 'C:\\ws', name: 'ws', readOnly: options.readOnly ?? false, createdAt: 0 }
       : null,
   )
   const skills = ref<SkillInfo[]>(options.skills ?? [])
   const sendMessage = vi.fn(async () => {})
+  const uploadImage = vi.fn(async () => 'up-1.png')
   const agent = {
     messages,
     streaming,
@@ -58,6 +75,7 @@ function mountPane(options: PaneOptions = {}) {
     subSessions: new Map(),
     run: ref(null),
     sendMessage,
+    uploadImage,
     abort: vi.fn(async () => {}),
     dismissGate: vi.fn(),
   } as unknown as AgentStore
@@ -65,7 +83,7 @@ function mountPane(options: PaneOptions = {}) {
     props: { agent, onOpenSettings: () => {} },
     attachTo: options.attachTo ? document.body : undefined,
   })
-  return { wrapper, agent, sendMessage, skills, activeWorkspaceId }
+  return { wrapper, agent, sendMessage, uploadImage, skills, activeWorkspaceId }
 }
 
 describe('ChatPane / 模型与思考级别按压状态', () => {
@@ -347,6 +365,143 @@ describe('ChatPane / skill 搜索下拉', () => {
     // 直接回车走原逻辑:发送
     await textarea.trigger('keydown', { key: 'Enter' })
     await flushPromises()
-    expect(sendMessage).toHaveBeenCalledWith('/skill:nope')
+    // 无图时第二参数为 undefined(sendMessage(text, images?) 新增可选参数,决策 6)
+    expect(sendMessage).toHaveBeenCalledWith('/skill:nope', undefined)
+  })
+})
+
+describe('ChatPane / 粘贴图片缩略图(compressorjs 压缩已 mock)', () => {
+  beforeEach(() => {
+    vi.mocked(preparePastedImage).mockClear()
+    vi.mocked(URL.createObjectURL).mockClear()
+    vi.mocked(URL.revokeObjectURL).mockClear()
+  })
+
+  /** 构造带 clipboardData.items 的 paste 事件并派发到 textarea */
+  function paste(wrapper: ReturnType<typeof mountPane>['wrapper'], files: File[]) {
+    const items = files.map((f) => ({ type: f.type, getAsFile: () => f }))
+    const event = new Event('paste', { bubbles: true, cancelable: true })
+    Object.defineProperty(event, 'clipboardData', { value: { items }, configurable: true })
+    wrapper.find('textarea').element.dispatchEvent(event)
+  }
+
+  function imageFile(name = 'shot.png'): File {
+    return new File(['img-bytes'], name, { type: 'image/png' })
+  }
+
+  it('paste 图片 → preparePastedImage 被调用,缩略图条出现(数量 + 体积提示)', async () => {
+    const { wrapper } = mountPane()
+    paste(wrapper, [imageFile()])
+    await flushPromises()
+
+    expect(preparePastedImage).toHaveBeenCalledTimes(1)
+    expect(preparePastedImage).toHaveBeenCalledWith(expect.any(File))
+    const bar = wrapper.find('[aria-label="删除图片"]')
+    expect(bar.exists()).toBe(true)
+    expect(wrapper.find('img[src="blob:mock-thumb"]').exists()).toBe(true)
+    expect(wrapper.text()).toContain('1/8 张')
+    expect(wrapper.text()).toContain('KB')
+  })
+
+  it('非图片粘贴(文本)不影响输入:preparePastedImage 不被调用,无缩略图', async () => {
+    const { wrapper } = mountPane()
+    paste(wrapper, [new File(['text'], 'a.txt', { type: 'text/plain' })])
+    await flushPromises()
+
+    expect(preparePastedImage).not.toHaveBeenCalled()
+    expect(wrapper.find('[aria-label="删除图片"]').exists()).toBe(false)
+  })
+
+  it('删除按钮移除缩略图并 revoke objectURL', async () => {
+    const { wrapper } = mountPane()
+    paste(wrapper, [imageFile()])
+    await flushPromises()
+    expect(wrapper.find('[aria-label="删除图片"]').exists()).toBe(true)
+
+    await wrapper.find('[aria-label="删除图片"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('[aria-label="删除图片"]').exists()).toBe(false)
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:mock-thumb')
+  })
+
+  it('>8 张拒绝并提示,不进入待发队列', async () => {
+    const { wrapper } = mountPane()
+    paste(wrapper, Array.from({ length: 9 }, () => imageFile()))
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('最多同时发送 8 张图片')
+    expect(wrapper.find('[aria-label="删除图片"]').exists()).toBe(false)
+    expect(preparePastedImage).not.toHaveBeenCalled()
+  })
+
+  it('纯图发送(空 draft + 1 张图):上传 → sendMessage([图片: path] + images)', async () => {
+    const { wrapper, uploadImage, sendMessage } = mountPane()
+    paste(wrapper, [imageFile()])
+    await flushPromises()
+
+    const sendBtn = wrapper.findAll('button').find((b) => b.text() === '发送')
+    expect(sendBtn?.attributes('disabled')).toBeUndefined() // 纯图可发送(风险 7)
+
+    await sendBtn?.trigger('click')
+    await flushPromises()
+
+    expect(uploadImage).toHaveBeenCalledWith('data:image/jpeg;base64,AAAA')
+    expect(sendMessage).toHaveBeenCalledWith('[图片: up-1.png]', [{ path: 'up-1.png', thumb: 'blob:mock-thumb' }])
+    // 发送成功后清空待发队列并 revoke
+    expect(wrapper.find('[aria-label="删除图片"]').exists()).toBe(false)
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:mock-thumb')
+  })
+
+  it('带文本发送:文本拼在 [图片: path] 之后', async () => {
+    const { wrapper, sendMessage } = mountPane()
+    paste(wrapper, [imageFile()])
+    await flushPromises()
+    await wrapper.find('textarea').setValue('请分析这张截图')
+    await flushPromises()
+
+    await wrapper.findAll('button').find((b) => b.text() === '发送')?.trigger('click')
+    await flushPromises()
+
+    expect(sendMessage).toHaveBeenCalledWith('[图片: up-1.png] 请分析这张截图', [
+      { path: 'up-1.png', thumb: 'blob:mock-thumb' },
+    ])
+  })
+
+  it('上传失败:sendError 提示、待发图片保留(标 error)、sendMessage 不调用', async () => {
+    const { wrapper, uploadImage, sendMessage } = mountPane()
+    uploadImage.mockRejectedValueOnce(new Error('boom'))
+    paste(wrapper, [imageFile()])
+    await flushPromises()
+
+    await wrapper.findAll('button').find((b) => b.text() === '发送')?.trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('图片上传失败:boom')
+    expect(sendMessage).not.toHaveBeenCalled()
+    expect(wrapper.find('[aria-label="删除图片"]').exists()).toBe(true) // 保留可删除重试
+  })
+
+  it('只读工作区粘贴:拒绝并提示,无缩略图,不调用压缩', async () => {
+    const { wrapper } = mountPane({ readOnly: true })
+    paste(wrapper, [imageFile()])
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('只读工作区不支持粘贴图片')
+    expect(wrapper.find('[aria-label="删除图片"]').exists()).toBe(false)
+    expect(preparePastedImage).not.toHaveBeenCalled()
+  })
+
+  it('切工作区清空待发图片并 revoke', async () => {
+    const { wrapper, activeWorkspaceId } = mountPane()
+    paste(wrapper, [imageFile()])
+    await flushPromises()
+    expect(wrapper.find('[aria-label="删除图片"]').exists()).toBe(true)
+
+    activeWorkspaceId.value = 'ws-2'
+    await flushPromises()
+
+    expect(wrapper.find('[aria-label="删除图片"]').exists()).toBe(false)
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:mock-thumb')
   })
 })

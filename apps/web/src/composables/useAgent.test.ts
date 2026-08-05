@@ -472,3 +472,111 @@ describe('useAgent 视觉模型配置(/api/agent/config/vision)', () => {
   })
 })
 
+
+describe('useAgent 图片上传与发送(uploadImage / sendMessage images)', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  /** 完整路由 stub(基础路由 + uploads 分支;uploadImpl 仅处理 POST /uploads) */
+  function stubApiWithUpload(uploadImpl: (url: string, init: RequestInit) => Response | Promise<Response>) {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input)
+        const requestInit = init ?? {}
+        if (url.endsWith('/ws-1/uploads') && requestInit.method === 'POST') return uploadImpl(url, requestInit)
+        if (url === '/api/agent/config') {
+          return jsonResponse({ hasApiKey: true, model: 'deepseek-v4-flash', thinkingLevel: 'off', models: [], thinkingLevels: ['off'] })
+        }
+        if (url === '/api/agent/workspaces') {
+          return jsonResponse([{ id: 'ws-1', path: '/x', name: 'x', readOnly: false, createdAt: 0 }])
+        }
+        if (url.endsWith('/ws-1/open')) {
+          return jsonResponse({
+            history: [],
+            status: { workspaceId: 'ws-1', model: 'deepseek-v4-flash', thinkingLevel: 'off', messageCount: 0, streaming: false, lastActivityAt: null },
+          })
+        }
+        if (url.endsWith('/ws-1/status')) {
+          return jsonResponse({ workspaceId: 'ws-1', model: 'deepseek-v4-flash', thinkingLevel: 'off', messageCount: 0, streaming: false, lastActivityAt: null })
+        }
+        return { ok: false, json: async () => ({ code: 404, message: 'Not Found', data: null }) }
+      }),
+    )
+  }
+
+  it('uploadImage:POST /uploads,body 为纯 base64(无 data: 前缀),返回 path', async () => {
+    let sentBody: unknown = null
+    let sentUrl = ''
+    stubApiWithUpload((url, init) => {
+      sentUrl = url
+      sentBody = JSON.parse(String(init?.body))
+      return jsonResponse({ path: '.wf-uploads/abc.png' })
+    })
+    const agent = useAgent()
+    await agent.init()
+    await agent.openWorkspace('ws-1')
+
+    const path = await agent.uploadImage('data:image/jpeg;base64,AAAA')
+    expect(path).toBe('.wf-uploads/abc.png')
+    expect(sentUrl).toBe('/api/agent/workspaces/ws-1/uploads')
+    // 纯 base64 payload(去 data: 前缀,后端魔数嗅探定 mime,不信客户端)
+    expect(sentBody).toEqual({ data: 'AAAA' })
+  })
+
+  it('uploadImage:无工作区 → 抛错', async () => {
+    const agent = useAgent()
+    await expect(agent.uploadImage('data:image/png;base64,x')).rejects.toThrow('请先选择工作区')
+  })
+
+  it('uploadImage:400 错误文案透出', async () => {
+    stubApiWithUpload(
+      () =>
+        ({
+          ok: false,
+          json: async () => ({ code: 400, message: '不支持的图片格式(支持 JPEG/PNG/GIF/WebP)', data: null }),
+        }) as unknown as Response,
+    )
+    const agent = useAgent()
+    await agent.init()
+    await agent.openWorkspace('ws-1')
+
+    await expect(agent.uploadImage('data:image/png;base64,x')).rejects.toThrow('不支持的图片格式(支持 JPEG/PNG/GIF/WebP)')
+  })
+
+  it('sendMessage(text, images):pushUserMessage 产生的 UiMessage 含 images 字段', async () => {
+    const stream = new ReadableStream<Uint8Array>({
+      async start(controller) {
+        controller.close()
+      },
+    })
+    stubApi(stream)
+    const agent = useAgent()
+    await agent.init()
+    await agent.openWorkspace('ws-1')
+
+    const images = [{ path: '.wf-uploads/abc.png', thumb: 'blob:mock-thumb' }]
+    await agent.sendMessage('[图片: .wf-uploads/abc.png] 请分析', images)
+
+    const first = agent.messages.value[0]
+    expect(first.role).toBe('user')
+    expect(messageText(first)).toBe('[图片: .wf-uploads/abc.png] 请分析')
+    expect(first.images).toEqual(images)
+  })
+
+  it('sendMessage 无 images 时 UiMessage.images 为 undefined(既有行为不变)', async () => {
+    const stream = new ReadableStream<Uint8Array>({
+      async start(controller) {
+        controller.close()
+      },
+    })
+    stubApi(stream)
+    const agent = useAgent()
+    await agent.init()
+    await agent.openWorkspace('ws-1')
+
+    await agent.sendMessage('hi')
+    expect(agent.messages.value[0].images).toBeUndefined()
+  })
+})

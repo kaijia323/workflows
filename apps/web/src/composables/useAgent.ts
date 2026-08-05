@@ -23,6 +23,8 @@ export interface UiMessage {
   role: 'user' | 'assistant'
   /** 内容片段序列 = 大模型输出顺序,前端按此渲染 */
   segments: UiSegment[]
+  /** 用户消息附带的图片缩略图(objectURL,仅会话内展示,不持久化;决策 6) */
+  images?: Array<{ path: string; thumb: string }>
   /** 用户手动操作过的思考块(标记后展开状态完全以用户为准,不再自动收起/展开) */
   thinkingTouched: Set<string>
   /** 思考块展开状态:key 为渲染块 key(thinking-N),仅对 thinkingTouched 的块生效 */
@@ -392,11 +394,12 @@ export function useAgent() {
     if (status.value) status.value.thinkingLevel = level
   }
 
-  function pushUserMessage(text: string): void {
+  function pushUserMessage(text: string, images?: UiMessage['images']): void {
     messages.value.push({
       id: `u${Date.now()}`,
       role: 'user',
       segments: [{ kind: 'text', text }],
+      images,
       thinkingTouched: new Set(),
       thinkingOpen: new Set(),
       status: 'done',
@@ -668,11 +671,24 @@ export function useAgent() {
     }))
   }
 
-  /** 发送消息:POST 后通过 SSE 流式接收 agent 事件 */
-  async function sendMessage(text: string): Promise<void> {
+  /** 上传粘贴图片(压缩后 base64)→ 返回工作区相对路径(如 .wf-uploads/<uuid>.png) */
+  async function uploadImage(dataUrl: string): Promise<string> {
     const workspaceId = activeWorkspaceId.value
     if (!workspaceId) throw new Error('请先选择工作区')
-    pushUserMessage(text)
+    const data = await request<{ path: string }>(`/api/agent/workspaces/${workspaceId}/uploads`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      // 纯 base64 payload(去 data: 前缀,后端魔数嗅探定 mime,不信客户端)
+      body: JSON.stringify({ data: dataUrl.split(',')[1] ?? dataUrl }),
+    })
+    return data.path
+  }
+
+  /** 发送消息:POST 后通过 SSE 流式接收 agent 事件 */
+  async function sendMessage(text: string, images?: UiMessage['images']): Promise<void> {
+    const workspaceId = activeWorkspaceId.value
+    if (!workspaceId) throw new Error('请先选择工作区')
+    pushUserMessage(text, images)
     streaming.value = true
     abortController = new AbortController()
     let buffer = ''
@@ -789,6 +805,7 @@ export function useAgent() {
     switchModel,
     switchThinking,
     sendMessage,
+    uploadImage,
     newSession,
     switchSession,
     deleteSession,

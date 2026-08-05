@@ -49,12 +49,24 @@ function formatTokens(n: number | undefined): string {
 </script>
 
 <template>
-  <!-- 用户消息:右对齐 -->
+  <!-- 用户消息:右对齐(附图片时展示缩略图网格,仅会话内展示,不持久化) -->
   <div
     v-if="message.role === 'user'"
     class="flex justify-end pl-12"
   >
     <div class="max-w-[85%] rounded-md border border-hairline bg-canvas-soft px-4 py-2.5">
+      <div
+        v-if="message.images?.length"
+        class="mb-2 flex flex-wrap gap-1.5"
+      >
+        <img
+          v-for="img in message.images"
+          :key="img.path"
+          :src="img.thumb"
+          class="h-16 w-16 rounded-sm border border-hairline object-cover"
+          :title="img.path"
+        >
+      </div>
       <div
         class="md break-words text-[13px] leading-relaxed text-ink"
         v-html="renderMarkdown(messageText(message))"

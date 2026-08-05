@@ -4,6 +4,7 @@ import { ArrowUpDown, Pause } from '@lucide/vue'
 import type { SkillInfo, SkillSource } from '@workflows/shared'
 import type { AgentStore, PlanBlock, UiMessage } from '../composables/useAgent'
 import { findToolSegment, hasThinking, isThinkingBlockOpen, messageText, planBlocks } from '../composables/useAgent'
+import { preparePastedImage } from '../utils/image'
 import MessageBubble from './MessageBubble.vue'
 import SessionSwitcher from './SessionSwitcher.vue'
 
@@ -26,6 +27,84 @@ const textareaRef = ref<HTMLTextAreaElement | null>(null)
 const stickToBottom = ref(true)
 const sendError = ref<string | null>(null)
 const rejectDraft = ref('')
+
+/* ---------------- 粘贴图片待发队列 ---------------- */
+
+interface PendingImage {
+  /** objectURL(内存驻留;删除/发送成功/切工作区时 revokeObjectURL,决策 6) */
+  thumb: string
+  /** 上传用 data URL(压缩后 base64,纯字节序列化) */
+  uploadDataUrl: string
+  path?: string
+  status: 'ready' | 'uploading' | 'error'
+  error?: string
+}
+
+const MAX_PENDING_IMAGES = 8
+const pendingImages = ref<PendingImage[]>([])
+
+/** 待发图片总体积(KB,base64 长度估算,决策 4 提示用) */
+const totalSizeKB = computed(() => {
+  const bytes = pendingImages.value.reduce((sum, img) => sum + (img.uploadDataUrl.length * 3) / 4, 0)
+  return Math.ceil(bytes / 1024)
+})
+
+function clearPendingImages(): void {
+  for (const img of pendingImages.value) {
+    if (img.thumb) URL.revokeObjectURL(img.thumb)
+  }
+  pendingImages.value = []
+}
+
+/** 切工作区:清空待发图片(图不能发到错误工作区,风险 8) */
+watch(() => props.agent.activeWorkspaceId.value, clearPendingImages)
+
+/** 粘贴:剪贴板图片 → compressorjs 压缩 → 待发队列;只读工作区拒绝 */
+async function onPaste(event: ClipboardEvent) {
+  const workspace = props.agent.activeWorkspace.value
+  if (!workspace) return
+  if (workspace.readOnly) {
+    sendError.value = '只读工作区不支持粘贴图片'
+    return
+  }
+  const items = event.clipboardData?.items
+  if (!items) return
+  const files: File[] = []
+  for (const item of items) {
+    if (item.type.startsWith('image/')) {
+      const file = item.getAsFile()
+      if (file) files.push(file)
+    }
+  }
+  if (files.length === 0) return // 非图片粘贴走浏览器默认行为
+  event.preventDefault()
+  sendError.value = null
+  if (pendingImages.value.length + files.length > MAX_PENDING_IMAGES) {
+    sendError.value = `最多同时发送 ${MAX_PENDING_IMAGES} 张图片`
+    return
+  }
+  for (const file of files) {
+    try {
+      const prepared = await preparePastedImage(file)
+      pendingImages.value.push({
+        thumb: prepared.thumbUrl,
+        uploadDataUrl: prepared.uploadDataUrl,
+        status: 'ready',
+      })
+    } catch {
+      // 压缩失败(库 error 回调):该项以 error 态入列,不中断其他图片
+      pendingImages.value.push({ thumb: '', uploadDataUrl: '', status: 'error', error: '图片压缩失败' })
+    }
+  }
+}
+
+/** 删除单张待发图片(并 revoke 其 objectURL) */
+function removeImage(index: number) {
+  const img = pendingImages.value[index]
+  if (!img) return
+  if (img.thumb) URL.revokeObjectURL(img.thumb)
+  pendingImages.value.splice(index, 1)
+}
 
 /* ---------------- / skill 搜索下拉 ---------------- */
 
@@ -111,12 +190,44 @@ onMounted(() => scrollToBottom())
 
 async function handleSend() {
   const text = draft.value.trim()
-  if (!text || props.agent.streaming.value || !props.agent.activeWorkspaceId.value) return
+  // 纯图可发送(空文本 + 待发图片);风险 7:仅当有图才放行
+  if ((!text && pendingImages.value.length === 0) || props.agent.streaming.value || !props.agent.activeWorkspaceId.value) {
+    return
+  }
   sendError.value = null
+
+  // 并行上传全部待发图片;任一张失败 → 不发送,缩略图保留(标 error,可删除重试)
+  const uploadTasks = pendingImages.value.map(async (img) => {
+    img.status = 'uploading'
+    try {
+      const path = await props.agent.uploadImage(img.uploadDataUrl)
+      img.path = path
+      img.status = 'ready'
+      return path
+    } catch (error) {
+      img.status = 'error'
+      img.error = error instanceof Error ? error.message : String(error)
+      throw error
+    }
+  })
+  let paths: string[]
+  try {
+    paths = await Promise.all(uploadTasks)
+  } catch (error) {
+    sendError.value = `图片上传失败:${error instanceof Error ? error.message : String(error)}`
+    return
+  }
+
+  // 方案 A:图片路径拼进消息文本([图片: <path>] 前缀 + 原文本),agent 可见路径即可调 vision-understand;
+  // 无图时保持 v1 行为(文本原样发送,不带多余空格)
+  const prefix = pendingImages.value.map((_img, i) => `[图片: ${paths[i]}]`).join(' ')
+  const fullText = pendingImages.value.length > 0 ? `${prefix}${text ? ` ${text}` : ''}` : text
+  const images = pendingImages.value.map((img, i) => ({ path: paths[i], thumb: img.thumb }))
   draft.value = ''
   stickToBottom.value = true
   try {
-    await props.agent.sendMessage(text)
+    await props.agent.sendMessage(fullText, images.length > 0 ? images : undefined)
+    clearPendingImages() // 发送成功:清空并全部 revoke(决策 6)
   } catch (error) {
     sendError.value = error instanceof Error ? error.message : String(error)
   }
@@ -384,6 +495,47 @@ async function rejectPlan(): Promise<void> {
         </button>
       </p>
 
+      <!-- 粘贴图片缩略图预览条(输入行正上方;objectURL 内存驻留,删除/发送成功/切工作区时 revoke) -->
+      <div
+        v-if="pendingImages.length"
+        class="mb-2.5 flex items-center gap-2 overflow-x-auto rounded-md border border-hairline bg-canvas-soft px-3 py-2"
+      >
+        <div
+          v-for="(img, i) in pendingImages"
+          :key="i"
+          class="relative shrink-0"
+          :title="img.error"
+        >
+          <img
+            v-if="img.thumb"
+            :src="img.thumb"
+            class="h-14 w-14 rounded-sm border border-hairline object-cover"
+            :class="img.status === 'error' ? 'border-err' : ''"
+          >
+          <div
+            v-else
+            class="grid h-14 w-14 place-items-center rounded-sm border border-err bg-canvas font-mono text-[10px] text-err"
+          >
+            !
+          </div>
+          <span
+            v-if="img.status === 'uploading'"
+            class="absolute inset-0 grid place-items-center rounded-sm bg-canvas/70 font-mono text-[10px] text-mute"
+          >上传中…</span>
+          <button
+            type="button"
+            aria-label="删除图片"
+            class="absolute -right-1.5 -top-1.5 grid size-4 place-items-center rounded-full border border-hairline bg-canvas text-mute hover:text-err"
+            @click="removeImage(i)"
+          >
+            ×
+          </button>
+        </div>
+        <span class="ml-auto shrink-0 font-mono text-[10px] text-mute">
+          {{ pendingImages.length }}/8 张,共 {{ totalSizeKB }} KB
+        </span>
+      </div>
+
       <div class="flex items-center gap-2">
         <div class="relative flex-1">
           <!-- 可访问名称:主聊天输入框(placeholder 仅作格式示例) -->
@@ -439,6 +591,7 @@ async function rejectPlan(): Promise<void> {
             :placeholder="agent.activeWorkspaceId.value ? '输入消息,输入 / 可搜索 skills,Enter 发送,Shift+Enter 换行…' : '先在左侧选择一个工作区'"
             class="block max-h-40 min-h-[40px] w-full resize-none rounded-sm border border-hairline bg-canvas-soft px-4 py-2.5 text-[14px] leading-relaxed text-ink placeholder:text-mute focus:border-primary disabled:opacity-50"
             @keydown="onKeydown"
+            @paste="onPaste"
             @blur="skillMenuOpen = false"
           />
         </div>
@@ -454,7 +607,7 @@ async function rejectPlan(): Promise<void> {
           v-else
           type="button"
           class="shrink-0 rounded-sm bg-primary px-4 py-2.5 font-display text-[11px] font-semibold tracking-widest text-on-primary transition hover:bg-primary-soft disabled:opacity-40"
-          :disabled="!draft.trim() || !agent.activeWorkspaceId.value"
+          :disabled="(!draft.trim() && pendingImages.length === 0) || !agent.activeWorkspaceId.value"
           @click="handleSend"
         >
           发送
