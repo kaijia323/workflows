@@ -10,6 +10,9 @@ const props = defineProps<{ agent: AgentStore }>()
 const emit = defineEmits<{ openPicker: [] }>()
 
 async function handleRemove(id: string) {
+  // 后端 DELETE /workspaces/:id 会连同该工作区全部会话历史文件一并删除(不可恢复),
+  // 与 SessionSwitcher 删除会话的确认范式一致,明示后果。
+  if (!window.confirm('移除工作区后,其会话历史文件将被永久删除,不可恢复。确定移除?')) return
   await props.agent.removeWorkspace(id)
 }
 
@@ -41,49 +44,54 @@ function formatDate(ts: number): string {
         </p>
       </div>
 
-      <button
+      <div
         v-for="ws in agent.workspaces.value"
         :key="ws.id"
-        type="button"
-        class="group relative block w-full rounded-sm border-l-2 px-3 py-2.5 text-left transition-colors duration-200"
-        :class="
-          ws.id === agent.activeWorkspaceId.value
-            ? 'border-l-primary bg-canvas-soft'
-            : 'border-l-transparent hover:bg-canvas-soft/60'
-        "
-        @click="agent.openWorkspace(ws.id)"
+        class="relative"
       >
-        <div class="flex items-center justify-between gap-2">
-          <span
-            class="truncate text-[13px] font-medium"
-            :class="ws.id === agent.activeWorkspaceId.value ? 'text-ink' : 'text-body group-hover:text-ink'"
-          >
-            {{ ws.name }}
-          </span>
-          <span
-            class="shrink-0 rounded-full border px-2 py-px font-mono text-[10px]"
-            :class="ws.readOnly ? 'border-primary/40 text-primary' : 'border-hairline text-mute'"
-          >
-            {{ ws.readOnly ? 'RO' : 'RW' }}
-          </span>
-        </div>
-        <p
-          class="mt-1 truncate font-mono text-[10px] text-mute"
-          :title="ws.path"
+        <!-- 选中按钮:点击切换激活工作区 -->
+        <button
+          type="button"
+          class="group block w-full rounded-sm border-l-2 px-3 py-2.5 text-left transition-colors duration-200"
+          :class="
+            ws.id === agent.activeWorkspaceId.value
+              ? 'border-l-primary bg-canvas-soft'
+              : 'border-l-transparent hover:bg-canvas-soft/60'
+          "
+          @click="agent.openWorkspace(ws.id)"
         >
-          {{ ws.path }}
-        </p>
-        <p class="mt-0.5 font-mono text-[10px] text-mute/70">
-          添加于 {{ formatDate(ws.createdAt) }}
-        </p>
+          <div class="flex items-center justify-between gap-2">
+            <span
+              class="truncate text-[13px] font-medium"
+              :class="ws.id === agent.activeWorkspaceId.value ? 'text-ink' : 'text-body group-hover:text-ink'"
+            >
+              {{ ws.name }}
+            </span>
+            <span
+              class="shrink-0 rounded-full border px-2 py-px font-mono text-[10px]"
+              :class="ws.readOnly ? 'border-primary/40 text-primary' : 'border-hairline text-mute'"
+            >
+              {{ ws.readOnly ? 'RO' : 'RW' }}
+            </span>
+          </div>
+          <p
+            class="mt-1 truncate font-mono text-[10px] text-mute"
+            :title="ws.path"
+          >
+            {{ ws.path }}
+          </p>
+          <p class="mt-0.5 font-mono text-[10px] text-mute/70">
+            添加于 {{ formatDate(ws.createdAt) }}
+          </p>
+        </button>
 
-        <!-- hover 操作 -->
-        <div class="absolute right-2 top-2 hidden gap-1 group-hover:flex">
+        <!-- 常显动作行(不依赖 hover,键盘可达):读写/只读切换 + 移除(带确认) -->
+        <div class="mt-1.5 flex gap-1 px-3 pb-1">
           <button
             type="button"
             class="border border-hairline bg-canvas px-1.5 py-0.5 font-mono text-[10px] text-body hover:border-primary/50 hover:text-primary"
             :title="ws.readOnly ? '切换为读写' : '切换为只读'"
-            @click.stop="agent.toggleReadOnly(ws.id, !ws.readOnly)"
+            @click="agent.toggleReadOnly(ws.id, !ws.readOnly)"
           >
             {{ ws.readOnly ? '读写' : '只读' }}
           </button>
@@ -91,12 +99,12 @@ function formatDate(ts: number): string {
             type="button"
             class="border border-hairline bg-canvas px-1.5 py-0.5 font-mono text-[10px] text-body hover:border-err/50 hover:text-err"
             title="移除"
-            @click.stop="handleRemove(ws.id)"
+            @click="handleRemove(ws.id)"
           >
             移除
           </button>
         </div>
-      </button>
+      </div>
     </div>
 
     <!-- 添加工作区 -->
