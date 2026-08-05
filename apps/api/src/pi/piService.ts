@@ -75,6 +75,8 @@ interface SessionHandle {
   usage: { input: number; output: number; cacheRead: number; cacheWrite: number; totalTokens: number; cost: number }
   busy: boolean
   lastActivityAt: number | null
+  /** MCP 配置变更时忙碌会话的挂起重建标记(下回合 prompt 入口消费) */
+  mcpRebuildPending?: boolean
   /** 当前 run(本次需求处理);无则 null */
   run: RunFile | null
   /** 本回合是否调用过 wait_for_approval(回合结束时决定 run 状态) */
@@ -598,6 +600,46 @@ export class PiAgentService {
     await this.openSession(workspace)
   }
 
+  /**
+   * MCP 配置变更后重建已打开会话:dispose + 同 sessionId 重开(JSONL 恢复上下文)。
+   * 与 reopenIfOpen 同构(彼处不带 sessionId、不开新 session);usage/lastActivityAt 从旧 handle 迁移,
+   * run 由 openSession 内部 resolveCurrentRun 从磁盘恢复。
+   * 失败降级:回退 openSession(workspace) 新建会话(旧 JSONL 原样保留,会话列表可切回)。
+   */
+  private async rebuildHandle(handle: SessionHandle): Promise<SessionHandle> {
+    const { workspace, sessionId, usage, lastActivityAt } = handle
+    handle.session.dispose()
+    this.handles.delete(workspace.id)
+    try {
+      const fresh = await this.openSession(workspace, sessionId)
+      fresh.usage = usage
+      fresh.lastActivityAt = lastActivityAt
+      return fresh
+    } catch (error) {
+      console.error(`[mcp] 会话重建失败(workspace=${workspace.id}),已回退新建会话:`, error)
+      return this.openSession(workspace)
+    }
+  }
+
+  /**
+   * MCP 配置变更后刷新所有已打开会话:空闲立即重建(同 sessionId,JSONL 恢复上下文),
+   * 忙碌挂起(mcpRebuildPending,下一回合 prompt 入口消费);只读工作区不注册 MCP 工具,跳过。
+   * 先快照 handles 再遍历(rebuildHandle 会改 map);单工作区失败独立隔离,不影响其他会话与 PUT/DELETE 响应。
+   */
+  async refreshMcpForOpenSessions(): Promise<void> {
+    await Promise.all(
+      [...this.handles.values()].map(async (h) => {
+        if (h.workspace.readOnly) return // 只读工作区不注册 MCP 工具,无需重建
+        if (h.busy) {
+          h.mcpRebuildPending = true // 不打断运行中回合,下回合开始前重建
+          return
+        }
+        await this.rebuildHandle(h).catch((e) =>
+          console.error(`[mcp] 会话重建失败(workspace=${h.workspace.id}):`, e))
+      }),
+    )
+  }
+
   /** 新建会话:保留旧会话(JSONL 不动),创建全新会话并激活 */
   async createSession(workspace: Workspace): Promise<SessionHandle> {
     const existing = this.handles.get(workspace.id)
@@ -694,8 +736,12 @@ export class PiAgentService {
     text: string,
     onEvent: (event: SessionEvent) => void,
   ): Promise<void> {
-    const handle = await this.openSession(workspace)
+    let handle = await this.openSession(workspace)
     if (handle.busy) throw new Error('agent 正在处理中,请稍候')
+    // MCP 配置变更挂起重建:本回合开始前消费。顺序关键:busy 检查先行,
+    // 用户在上一个回合仍在运行时发消息 → 先抛「正在处理中」,绝不 dispose 运行中的会话;
+    // rebuildHandle 内部已兜底(失败回退新建),prompt 不会被重建异常打断。
+    if (handle.mcpRebuildPending) handle = await this.rebuildHandle(handle)
     handle.busy = true
     handle.lastActivityAt = Date.now()
     // 新回合:重置回合内标志(闸门 / 任务完成 / 子代理调用),挂载事件发射器(子代理工具经此转发 sub_* 事件)

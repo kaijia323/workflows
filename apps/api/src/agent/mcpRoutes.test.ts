@@ -5,7 +5,7 @@
  * 覆盖:PUT 新增/覆盖/校验失败零写入、DELETE 存在/不存在、GET 配置+状态合并;
  * dispose 行为由 mcpTools.test.ts 覆盖(本文件标注为配置层测试)。
  */
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -39,8 +39,10 @@ function makeService(store: WorkflowsStore): PiAgentService {
   )
 }
 
+
+
 /** 组装带 MCP 路由的 Hono app(含与 app.ts 一致的统一错误格式化;仅注册,不发真实请求到会话层) */
-function makeApp(): { app: Hono; store: WorkflowsStore; dir: string } {
+function makeApp(): { app: Hono; store: WorkflowsStore; dir: string; pi: PiAgentService } {
   const store = makeStore()
   const pi = makeService(store)
   const app = new Hono()
@@ -52,7 +54,7 @@ function makeApp(): { app: Hono; store: WorkflowsStore; dir: string } {
     }
     return c.json({ code: 500, message: 'Internal Server Error', data: null }, 500)
   })
-  return { app, store, dir: store.root }
+  return { app, store, dir: store.root, pi }
 }
 
 interface ApiBody {
@@ -72,6 +74,25 @@ function diskServers(store: WorkflowsStore): unknown {
 }
 
 describe('/api/agent/mcp* 路由', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('PUT/DELETE 成功后各调用一次 refreshMcpForOpenSessions(保存即生效接线)', async () => {
+    const { app, pi } = makeApp()
+    const refresh = vi.spyOn(pi, 'refreshMcpForOpenSessions').mockResolvedValue()
+
+    await requestJson(app, '/api/agent/mcp/echo', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ command: 'node' }),
+    })
+    expect(refresh).toHaveBeenCalledTimes(1)
+
+    await requestJson(app, '/api/agent/mcp/echo', { method: 'DELETE' })
+    expect(refresh).toHaveBeenCalledTimes(2)
+  })
+
   it('GET 返回配置 + 状态(空配置 → 空列表)', async () => {
     const { app } = makeApp()
     const { status, body } = await requestJson(app, '/api/agent/mcp')

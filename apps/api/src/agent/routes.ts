@@ -105,8 +105,9 @@ export function registerAgentRoutes(app: Hono, store: WorkflowsStore, pi: PiAgen
     } catch (error) {
       throw new HTTPException(400, { message: error instanceof Error ? error.message : String(error) })
     }
-    // 断旧连接 + 清缓存:新会话生效;旧会话工具集不变
+    // 断旧连接 + 清缓存,再重建已打开会话:保存即生效(空闲立即重建,忙碌挂起下回合生效)
     await pi.disposeMcpServer(name)
+    await pi.refreshMcpForOpenSessions()
     return c.json({ code: 0, message: '已保存 MCP server', data: mcpOverview() })
   })
 
@@ -114,7 +115,9 @@ export function registerAgentRoutes(app: Hono, store: WorkflowsStore, pi: PiAgen
   app.delete('/api/agent/mcp/:name', async (c) => {
     const name = c.req.param('name')
     if (!removeMcpServer(store, name)) throw new HTTPException(404, { message: `MCP server「${name}」不存在` })
+    // 断旧连接 + 清缓存,再重建已打开会话:保存即生效(空闲立即重建,忙碌挂起下回合生效)
     await pi.disposeMcpServer(name)
+    await pi.refreshMcpForOpenSessions()
     return c.json({ code: 0, message: '已删除', data: mcpOverview() })
   })
 
