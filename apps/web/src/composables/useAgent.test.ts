@@ -382,3 +382,93 @@ describe('useAgent MCP actions(/api/agent/mcp*)', () => {
   })
 })
 
+describe('useAgent 视觉模型配置(/api/agent/config/vision)', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('saveVisionConfig:PUT 请求体 = patch,成功后刷新 config(含 visionEnabled/hasVisionApiKey)', async () => {
+    let sentBody: unknown = null
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input)
+        if (url === '/api/agent/config/vision' && init?.method === 'PUT') {
+          sentBody = JSON.parse(String(init?.body))
+          return jsonResponse({
+            hasApiKey: true,
+            model: 'deepseek-v4-flash',
+            thinkingLevel: 'off',
+            models: [],
+            thinkingLevels: ['off'],
+            visionEnabled: true,
+            hasVisionApiKey: true,
+          })
+        }
+        if (url === '/api/agent/config') {
+          return jsonResponse({
+            hasApiKey: true,
+            model: 'deepseek-v4-flash',
+            thinkingLevel: 'off',
+            models: [],
+            thinkingLevels: ['off'],
+            visionEnabled: true,
+            hasVisionApiKey: true,
+          })
+        }
+        return { ok: false, json: async () => ({ code: 404, message: 'Not Found', data: null }) }
+      }),
+    )
+    const agent = useAgent()
+    await agent.saveVisionConfig({ enabled: true, apiKey: 'sk-xiaomi-1' })
+
+    expect(sentBody).toEqual({ enabled: true, apiKey: 'sk-xiaomi-1' })
+    expect(agent.config.value?.visionEnabled).toBe(true)
+    expect(agent.config.value?.hasVisionApiKey).toBe(true)
+    expect(agent.visionEnabled.value).toBe(true)
+    expect(agent.hasVisionApiKey.value).toBe(true)
+  })
+
+  it('saveVisionConfig:关闭时仅提交 enabled(不携带 apiKey);computed 默认 false', async () => {
+    let sentBody: unknown = null
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input)
+        if (url === '/api/agent/config/vision' && init?.method === 'PUT') {
+          sentBody = JSON.parse(String(init?.body))
+          return jsonResponse({
+            hasApiKey: true,
+            model: 'deepseek-v4-flash',
+            thinkingLevel: 'off',
+            models: [],
+            thinkingLevels: ['off'],
+            visionEnabled: false,
+            hasVisionApiKey: true,
+          })
+        }
+        if (url === '/api/agent/config') {
+          return jsonResponse({
+            hasApiKey: true,
+            model: 'deepseek-v4-flash',
+            thinkingLevel: 'off',
+            models: [],
+            thinkingLevels: ['off'],
+            visionEnabled: false,
+            hasVisionApiKey: true,
+          })
+        }
+        return { ok: false, json: async () => ({ code: 404, message: 'Not Found', data: null }) }
+      }),
+    )
+    const agent = useAgent()
+    // 未加载 config 时默认 false
+    expect(agent.visionEnabled.value).toBe(false)
+    await agent.saveVisionConfig({ enabled: false })
+
+    expect(sentBody).toEqual({ enabled: false })
+    expect(agent.visionEnabled.value).toBe(false)
+    expect(agent.hasVisionApiKey.value).toBe(true)
+  })
+})
+

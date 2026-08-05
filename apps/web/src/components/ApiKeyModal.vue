@@ -4,6 +4,7 @@ import type { AgentStore } from '../composables/useAgent'
 import { useModalDialog } from '../composables/useModalDialog'
 import ApiKeysPanel from './ApiKeysPanel.vue'
 import McpPanel from './McpPanel.vue'
+import VisionPanel from './VisionPanel.vue'
 
 defineProps<{
   agent: AgentStore
@@ -11,7 +12,7 @@ defineProps<{
 }>()
 const emit = defineEmits<{ close: [] }>()
 
-type TabId = 'api' | 'mcp'
+type TabId = 'api' | 'mcp' | 'vision'
 const activeTab = ref<TabId>('api')
 
 /** 对话框契约:焦点 trap / 背景 inert / Esc 关闭 / 卸载还原焦点 */
@@ -19,7 +20,7 @@ const root = ref<HTMLElement | null>(null)
 useModalDialog({
   root,
   onClose: () => emit('close'),
-  ariaLabel: '设置:API Keys 与 MCP 配置',
+  ariaLabel: '设置:API Keys、MCP 与视觉模型配置',
 })
 </script>
 
@@ -30,7 +31,7 @@ useModalDialog({
     role="dialog"
     aria-modal="true"
     tabindex="-1"
-    aria-label="设置:API Keys 与 MCP 配置"
+    aria-label="设置:API Keys、MCP 与视觉模型配置"
     class="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-canvas/80 p-6 backdrop-blur-sm"
     @click.self="emit('close')"
   >
@@ -82,6 +83,19 @@ useModalDialog({
               >MCP Servers</span>
               <span class="mt-0.5 block truncate font-mono text-[10px] text-mute">外部工具</span>
             </button>
+            <!-- Tab 3:视觉模型 -->
+            <button
+              type="button"
+              class="block w-full rounded-sm border-l-2 px-3 py-2.5 text-left transition-colors duration-200"
+              :class="activeTab === 'vision' ? 'border-l-primary bg-canvas-soft' : 'border-l-transparent hover:bg-canvas-soft/60'"
+              @click="activeTab = 'vision'"
+            >
+              <span
+                class="block truncate text-[13px] font-medium"
+                :class="activeTab === 'vision' ? 'text-ink' : 'text-body'"
+              >视觉模型</span>
+              <span class="mt-0.5 block truncate font-mono text-[10px] text-mute">识图工具</span>
+            </button>
           </div>
         </nav>
 
@@ -95,6 +109,11 @@ useModalDialog({
           <McpPanel
             v-show="activeTab === 'mcp'"
             :agent="agent"
+          />
+          <VisionPanel
+            v-show="activeTab === 'vision'"
+            :agent="agent"
+            :meta="meta"
           />
         </main>
       </div>

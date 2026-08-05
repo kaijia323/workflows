@@ -173,6 +173,8 @@ export function useAgent() {
   const activeWorkspace = computed(() => workspaces.value.find((w) => w.id === activeWorkspaceId.value) ?? null)
   const hasApiKey = computed(() => config.value?.hasApiKey ?? false)
   const hasAnySearchApiKey = computed(() => config.value?.hasAnySearchApiKey ?? false)
+  const visionEnabled = computed(() => config.value?.visionEnabled ?? false)
+  const hasVisionApiKey = computed(() => config.value?.hasVisionApiKey ?? false)
 
   async function refreshConfig(): Promise<void> {
     config.value = await request<AgentConfig>('/api/agent/config')
@@ -208,6 +210,16 @@ export function useAgent() {
       method: 'PUT',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ apiKey: key }),
+    })
+    await refreshConfig()
+  }
+
+  /** 保存视觉模型开关与小米 key(开关翻转后端会重建已打开会话;空串 apiKey=清空配置) */
+  async function saveVisionConfig(patch: { enabled: boolean; apiKey?: string }): Promise<void> {
+    await request('/api/agent/config/vision', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(patch),
     })
     await refreshConfig()
   }
@@ -758,11 +770,14 @@ export function useAgent() {
     mcp,
     hasApiKey,
     hasAnySearchApiKey,
+    visionEnabled,
+    hasVisionApiKey,
     init,
     refreshConfig,
     refreshWorkspaces,
     saveApiKey,
     saveAnySearchApiKey,
+    saveVisionConfig,
     refreshMcp,
     saveMcpServer,
     deleteMcpServer,
