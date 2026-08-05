@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import type { AgentStore } from '../composables/useAgent'
+import { useModalDialog } from '../composables/useModalDialog'
 import ApiKeysPanel from './ApiKeysPanel.vue'
 import McpPanel from './McpPanel.vue'
 
@@ -12,11 +13,24 @@ const emit = defineEmits<{ close: [] }>()
 
 type TabId = 'api' | 'mcp'
 const activeTab = ref<TabId>('api')
+
+/** 对话框契约:焦点 trap / 背景 inert / Esc 关闭 / 卸载还原焦点 */
+const root = ref<HTMLElement | null>(null)
+useModalDialog({
+  root,
+  onClose: () => emit('close'),
+  ariaLabel: '设置:API Keys 与 MCP 配置',
+})
 </script>
 
 <template>
   <!-- 遮罩 -->
   <div
+    ref="root"
+    role="dialog"
+    aria-modal="true"
+    tabindex="-1"
+    aria-label="设置:API Keys 与 MCP 配置"
     class="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-canvas/80 p-6 backdrop-blur-sm"
     @click.self="emit('close')"
   >

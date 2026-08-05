@@ -3,6 +3,7 @@ import { computed, nextTick, onMounted, ref } from 'vue'
 import { ChevronRight, X } from '@lucide/vue'
 import type { DirListing } from '@workflows/shared'
 import type { AgentStore } from '../composables/useAgent'
+import { useModalDialog } from '../composables/useModalDialog'
 
 /**
  * 添加工作区:目录选择器。
@@ -22,6 +23,15 @@ const adding = ref(false)
 
 const inputRef = ref<HTMLInputElement | null>(null)
 const listRef = ref<HTMLElement | null>(null)
+
+/** 对话框契约:焦点 trap / 背景 inert / Esc 关闭 / 卸载还原焦点;打开即聚焦输入框 */
+const root = ref<HTMLElement | null>(null)
+useModalDialog({
+  root,
+  onClose: () => emit('close'),
+  ariaLabel: '添加工作区',
+  initialFocus: () => inputRef.value,
+})
 
 interface Row {
   name: string
@@ -230,6 +240,11 @@ onMounted(() => {
 
 <template>
   <div
+    ref="root"
+    role="dialog"
+    aria-modal="true"
+    tabindex="-1"
+    aria-label="添加工作区"
     class="fixed inset-0 z-50 grid place-items-center bg-canvas/80 backdrop-blur-sm"
     @click.self="emit('close')"
   >

@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import { ArrowUpDown, X } from '@lucide/vue'
 import type { AgentStore, PlanBlock, UiMessage } from '../composables/useAgent'
 import { hasThinking, isThinkingBlockOpen, planBlocks } from '../composables/useAgent'
+import { useModalDialog } from '../composables/useModalDialog'
 import MessageBubble from './MessageBubble.vue'
 
 /**
@@ -16,6 +17,14 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{ close: [] }>()
+
+/** 对话框契约:焦点 trap / 背景 inert / Esc 关闭 / 卸载还原焦点 */
+const root = ref<HTMLElement | null>(null)
+useModalDialog({
+  root,
+  onClose: () => emit('close'),
+  ariaLabel: `子代理 ${props.agentName}`,
+})
 
 /** 历史回看数据(实时容器缺失时加载) */
 const history = ref<UiMessage[] | null>(null)
@@ -78,6 +87,11 @@ function toggleTool(msg: UiMessage, callId: string): void {
 <template>
   <!-- 遮罩 -->
   <div
+    ref="root"
+    role="dialog"
+    aria-modal="true"
+    tabindex="-1"
+    :aria-label="`子代理 ${agentName}`"
     class="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-canvas/80 p-6 backdrop-blur-sm"
     @click.self="emit('close')"
   >
