@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { Pencil } from '@lucide/vue'
 import { computed, onMounted, ref } from 'vue'
 import type { McpServerConfig, McpToolInfo } from '@workflows/shared'
 import type { AgentStore } from '../composables/useAgent'
@@ -34,6 +35,16 @@ function envSummary(env: Record<string, string>): string {
 }
 
 /**
+ * env 对象 → 每行 KEY=VALUE(parseEnvText 的逆;值含空格/「=」均原样保留,往返一致)。
+ * 已知边界(可接受,与 parseEnvText 的 line.trim() 对称):值行首尾空白、键行尾空白
+ * 回填后再保存会被 trim 归一化;均为罕见脏数据。
+ */
+function envToText(env: Record<string, string> | undefined): string {
+  if (!env) return ''
+  return Object.entries(env).map(([k, v]) => `${k}=${v}`).join('\n')
+}
+
+/**
  * MCP server 管理面板(内嵌于 ApiKeyModal 的第三个 section)。
  * 数据来自 agent.mcp(GET /api/agent/mcp);增删改/测试全部走 /api/agent/mcp*。
  */
@@ -48,6 +59,9 @@ const envError = ref<string | null>(null)
 const saving = ref(false)
 const error = ref<string | null>(null)
 const saved = ref(false)
+
+/** 当前编辑中的 server name;null = 新增态 */
+const editingName = ref<string | null>(null)
 
 /** 手动刷新中(防重复点击) */
 const refreshing = ref(false)
@@ -112,8 +126,36 @@ async function toggleEnabled(server: McpServerConfig): Promise<void> {
   await props.agent.saveMcpServer({ ...server, enabled: !(server.enabled ?? false) })
 }
 
-/** 添加并测试:保存(默认不启用)→ 自动跑一次连接测试 */
-async function handleAdd(): Promise<void> {
+/** 复位表单全部输入与提示(新增/取消/编辑切换/编辑保存成功共用) */
+function resetForm(): void {
+  nameInput.value = ''
+  commandInput.value = ''
+  argsInput.value = ''
+  envInput.value = ''
+  envError.value = null
+  error.value = null
+  saved.value = false
+}
+
+/** 进入编辑:回填表单(name 只读);编辑中切换目标先复位再进入 */
+function startEdit(server: McpServerConfig): void {
+  resetForm()
+  editingName.value = server.name
+  nameInput.value = server.name
+  commandInput.value = server.command
+  argsInput.value = (server.args ?? []).join(' ')
+  envInput.value = envToText(server.env)
+  // 不触碰 testResults:该 server 的测试结果区保持原样(可选后续清空,本轮不做)
+}
+
+/** 取消编辑:回到新增态并清空表单 */
+function cancelEdit(): void {
+  editingName.value = null
+  resetForm()
+}
+
+/** 保存(新增/编辑共用):新增 enabled:false;编辑透传原 enabled;成功后清空表单并自动测试 */
+async function handleSave(): Promise<void> {
   const name = nameInput.value.trim()
   const command = commandInput.value.trim()
   if (!name || !command || saving.value) return
@@ -131,15 +173,18 @@ async function handleAdd(): Promise<void> {
     const args = argsInput.value.trim() === '' ? [] : argsInput.value.trim().split(/\s+/)
     // 空 env 传 undefined:useAgent 的 JSON.stringify 自动省略该键,磁盘不写出 "env": {} (与 useAgent.ts 注释一致)
     const env = Object.keys(parsed.env).length > 0 ? parsed.env : undefined
-    await props.agent.saveMcpServer({ name, command, args, enabled: false, env })
-    nameInput.value = ''
-    commandInput.value = ''
-    argsInput.value = ''
-    envInput.value = ''
+    const editing = editingName.value
+    // ★ 关键:编辑态 enabled 透传原值(绝不复用新增的 enabled:false,否则静默禁用已启用 server)
+    const enabled = editing !== null
+      ? (servers.value.find((s) => s.name === editing)?.enabled ?? false)
+      : false
+    await props.agent.saveMcpServer({ name: editing ?? name, command, args, enabled, env })
+    resetForm()
+    if (editing !== null) editingName.value = null
     saved.value = true
-    void handleTest(name)
+    void handleTest(editing ?? name)   // 保存后自动测试(新增/编辑一致;名称未变,可安全测试)
   } catch (e) {
-    error.value = e instanceof Error ? e.message : String(e)
+    error.value = e instanceof Error ? e.message : String(e)   // 失败:保持当前 mode,表单不丢
   } finally {
     saving.value = false
   }
@@ -251,6 +296,15 @@ async function handleDelete(name: string): Promise<void> {
           <div class="flex items-center gap-2">
             <button
               type="button"
+              class="flex items-center gap-1 rounded-sm border border-hairline px-2 py-0.5 font-mono text-[10px] text-body hover:border-primary/50 hover:text-primary"
+              :data-testid="`edit-${server.name}`"
+              @click="startEdit(server)"
+            >
+              <Pencil class="size-3" />
+              编辑
+            </button>
+            <button
+              type="button"
               class="rounded-sm border border-hairline px-2 py-0.5 font-mono text-[10px] text-body hover:border-primary/50 hover:text-primary"
               @click="handleTest(server.name)"
             >
@@ -312,17 +366,24 @@ async function handleDelete(name: string): Promise<void> {
       尚未配置 MCP server
     </p>
 
-    <!-- 添加表单 -->
+    <!-- 添加/编辑表单 -->
+    <p class="mt-4 font-mono text-[10px] tracking-wider text-mute">
+      {{ editingName ? `编辑 server: ${editingName}` : '添加外部 MCP server' }}
+    </p>
     <form
       class="mt-4"
-      @submit.prevent="handleAdd"
+      @submit.prevent="handleSave"
     >
       <div class="grid grid-cols-2 gap-2">
         <input
-          v-model="nameInput"
+          :value="nameInput"
+          :readonly="editingName !== null"
+          :title="editingName !== null ? 'name 不可修改;如需改名请删除后重新添加' : undefined"
+          :class="editingName !== null ? 'cursor-not-allowed opacity-60' : ''"
           spellcheck="false"
           placeholder="name(如 github)"
           class="w-full rounded-sm border border-hairline bg-canvas-soft px-3 py-2 font-mono text-xs text-ink placeholder:text-mute focus:border-primary"
+          @input="editingName === null && (nameInput = ($event.target as HTMLInputElement).value)"
         >
         <input
           v-model="commandInput"
@@ -352,14 +413,27 @@ async function handleDelete(name: string): Promise<void> {
         {{ envError }}
       </p>
       <div class="mt-3 flex items-center justify-between">
-        <span class="font-mono text-[10px] text-mute">新增默认不启用(opt-in)</span>
-        <button
-          type="submit"
-          class="rounded-sm bg-primary px-4 py-1.5 font-display text-[11px] tracking-widest text-on-primary transition hover:bg-primary-soft disabled:opacity-40"
-          :disabled="saving || !nameInput.trim() || !commandInput.trim()"
-        >
-          {{ saving ? '添加中…' : '添加并测试' }}
-        </button>
+        <span class="font-mono text-[10px] text-mute">
+          {{ editingName ? '编辑覆盖保存到 mcp.json' : '新增默认不启用(opt-in)' }}
+        </span>
+        <div class="flex items-center gap-2">
+          <button
+            v-if="editingName"
+            type="button"
+            data-testid="cancel-edit"
+            class="rounded-sm border border-hairline px-4 py-1.5 font-display text-[11px] tracking-widest text-body hover:border-err/50 hover:text-err"
+            @click="cancelEdit"
+          >
+            取消
+          </button>
+          <button
+            type="submit"
+            class="rounded-sm bg-primary px-4 py-1.5 font-display text-[11px] tracking-widest text-on-primary transition hover:bg-primary-soft disabled:opacity-40"
+            :disabled="saving || !nameInput.trim() || !commandInput.trim()"
+          >
+            {{ saving ? (editingName ? '保存中…' : '添加中…') : (editingName ? '保存修改' : '添加并测试') }}
+          </button>
+        </div>
       </div>
     </form>
 
