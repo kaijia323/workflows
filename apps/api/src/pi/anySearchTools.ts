@@ -267,7 +267,7 @@ const TRUNCATION_MARKER = '\n\n[50KB limit reached]'
  * 按字节安全截断:截断位置落在字符边界,不把多字节字符(如中文)或代理对切半,
  * 避免输出乱码/替换字符;截断内容 + 提示标记总字节 ≤ MAX_OUTPUT_BYTES。
  */
-function truncateOutput(text: string): string {
+export function truncateOutput(text: string): string {
   const limit = MAX_OUTPUT_BYTES - Buffer.byteLength(TRUNCATION_MARKER)
   if (Buffer.byteLength(text) <= limit) return text
   // 二分查找:不超过 limit 字节的最大完整字符前缀(UTF-16 code unit 层面二分)

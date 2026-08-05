@@ -47,6 +47,17 @@ export function registerAgentRoutes(app: Hono, store: WorkflowsStore, pi: PiAgen
     return c.json({ code: 0, message: '已保存', data: pi.getConfig() })
   })
 
+  // 视觉模型配置(开关 + 小米 key;空串 apiKey=清空;key 明文不返回前端;开关翻转触发已打开会话重建)
+  app.put('/api/agent/config/vision', async (c) => {
+    const body = await readJson<{ enabled?: unknown; apiKey?: unknown }>(c)
+    if (typeof body?.enabled !== 'boolean') throw new HTTPException(400, { message: '缺少 enabled(布尔)' })
+    const rawKey = body.apiKey
+    if (rawKey !== undefined && typeof rawKey !== 'string') throw new HTTPException(400, { message: 'apiKey 必须是字符串' })
+    const apiKey = typeof rawKey === 'string' ? rawKey.trim() : undefined
+    await pi.setVisionConfig({ enabled: body.enabled, apiKey })
+    return c.json({ code: 0, message: '已保存', data: pi.getConfig() })
+  })
+
   app.post('/api/agent/config/model', async (c) => {
     const body = await readJson<{ modelId?: string; workspaceId?: string }>(c)
     if (!body?.modelId) throw new HTTPException(400, { message: '缺少 modelId' })

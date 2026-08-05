@@ -17,6 +17,7 @@ import {
 import { createWorkspaceBashHook, guardPathTool, guardToolSet, toToolDefinition } from './workspaceGuard.js'
 import { createFffFindTool, createFffGrepTool, FffIndexManager } from './fffTools.js'
 import { createAnySearchTools } from './anySearchTools.js'
+import { createVisionTools } from './visionTools.js'
 import { McpManager, createMcpTools } from './mcpTools.js'
 import { getAgentDefinitions } from './agentDefs.js'
 import { createPromptOnlyLoader, loadWorkspaceSkills, skillReadRoots, toSkillInfo, type SkillLoadContext } from './promptLoader.js'
@@ -47,8 +48,10 @@ import {
   createStore,
   getActiveSession,
   getSession,
+  getVisionEnabled,
   hasAnySearchApiKey,
   hasApiKey,
+  hasVisionApiKey,
   listSessions,
   loadConfig,
   migrateSessionsLayout,
@@ -59,7 +62,9 @@ import {
   sessionFileFor,
   setAnySearchApiKey,
   setApiKey,
+  setVisionConfig,
   updateSessionMeta,
+  visionAvailable,
   type WorkflowsStore,
 } from '../config.js'
 import { loadMcpServers } from '../mcpConfig.js'
@@ -75,8 +80,8 @@ interface SessionHandle {
   usage: { input: number; output: number; cacheRead: number; cacheWrite: number; totalTokens: number; cost: number }
   busy: boolean
   lastActivityAt: number | null
-  /** MCP 配置变更时忙碌会话的挂起重建标记(下回合 prompt 入口消费) */
-  mcpRebuildPending?: boolean
+  /** 配置变更(含 MCP 配置 / 视觉开关)时忙碌会话的挂起重建标记(下回合 prompt 入口消费) */
+  rebuildPending?: boolean
   /** 当前 run(本次需求处理);无则 null */
   run: RunFile | null
   /** 本回合是否调用过 wait_for_approval(回合结束时决定 run 状态) */
@@ -148,6 +153,18 @@ export class PiAgentService {
     setAnySearchApiKey(this.store, key)
   }
 
+  /**
+   * 保存视觉模型开关与小米 key(仅存 .workflows/config.json;工具执行时动态读取,无需运行时注入)。
+   * 开关翻转(注册面变化)→ 重建所有已打开会话(含只读工作区);仅 key 变更不重建
+   * (getApiKey 回调动态读取,已注册工具下次调用即用新 key)。
+   */
+  async setVisionConfig(patch: { enabled?: boolean; apiKey?: string }): Promise<void> {
+    const before = getVisionEnabled(this.store)
+    setVisionConfig(this.store, patch)
+    const after = getVisionEnabled(this.store)
+    if (before !== after) await this.refreshOpenSessions()
+  }
+
   getConfig(): AgentConfig {
     const stored = loadConfig(this.store)
     const models = this.listModels()
@@ -158,6 +175,8 @@ export class PiAgentService {
     return {
       hasApiKey: hasApiKey(this.store),
       hasAnySearchApiKey: hasAnySearchApiKey(this.store),
+      visionEnabled: getVisionEnabled(this.store),
+      hasVisionApiKey: hasVisionApiKey(this.store),
       model: model?.id ?? DEFAULT_MODEL,
       thinkingLevel: thinkingLevels.includes(thinkingLevel as ModelThinkingLevel) ? thinkingLevel : 'off',
       models: models.map((m) => ({
@@ -271,6 +290,18 @@ export class PiAgentService {
       getApiKey: () => loadConfig(this.store).anySearchApiKey ?? undefined,
     })
     const webToolNames = webTools.map((tool) => tool.name)
+    // 视觉理解工具:开关 + key 均满足才注册(注册门 visionAvailable 单一事实源,主/子代理共用);
+    // 无 path 参数,守卫内置于工具 execute(工作区边界 + skills 放行根,与 read 工具同语义,D8);
+    // 只读工作区也注册(无副作用只读 HTTP 工具,对齐 anysearch,D9);
+    // key 经 getApiKey 回调动态读取,保存 key 后下次调用立即生效(开关翻转才重建会话)
+    const visionTools = visionAvailable(this.store)
+      ? createVisionTools({
+          workspacePath: workspace.path,
+          extraAllowedRoots: extraReadRoots,
+          getApiKey: () => loadConfig(this.store).visionApiKey ?? undefined,
+        })
+      : []
+    const visionToolNames = visionTools.map((tool) => tool.name)
     // MCP 外部工具:只读工作区不注册(MCP 工具可能产生工作区外副作用);
     // 方案 B:工具 execute 调用时经 live resolver 解析最新配置——未重建窗口期内的旧闭包
     // 也按最新配置连接;已删除/禁用 server 的工具立即失效(不按旧配置复活)
@@ -280,20 +311,21 @@ export class PiAgentService {
       : await createMcpTools(this.mcp, mcpServers, (name) => loadMcpServers(this.store).find((s) => s.name === name))
     const mcpToolNames = mcpTools.map((tool) => tool.name)
     const guardedTools: ToolDefinition[] = workspace.readOnly
-      ? [...nonSearchTools, ...searchTools, ...webTools, ...mcpTools]
+      ? [...nonSearchTools, ...searchTools, ...webTools, ...visionTools, ...mcpTools]
       : [
           ...nonSearchTools,
           ...searchTools,
           ...webTools,
+          ...visionTools,
           ...mcpTools,
           toToolDefinition(createBashTool(workspace.path, { spawnHook: createWorkspaceBashHook(workspace.path) })),
         ]
     // 注意:SDK 的 allowedToolNames(tools 参数)会过滤 customTools 注册表,
-    // 所以 fff 工具、anysearch-search 与 mcp__ 工具必须显式列入;内置 grep/find 不列入即不开放
+    // 所以 fff 工具、anysearch-search、vision-understand 与 mcp__ 工具必须显式列入;内置 grep/find 不列入即不开放
     const searchNames = searchTools.map((tool) => tool.name)
     const activeTools = workspace.readOnly
-      ? ['read', 'ls', ...searchNames, ...webToolNames, ...mcpToolNames]
-      : ['read', 'bash', 'edit', 'write', ...searchNames, ...webToolNames, ...mcpToolNames]
+      ? ['read', 'ls', ...searchNames, ...webToolNames, ...visionToolNames, ...mcpToolNames]
+      : ['read', 'bash', 'edit', 'write', ...searchNames, ...webToolNames, ...visionToolNames, ...mcpToolNames]
 
     // ---- 工作流编排:主代理 prompt(orchestrator.md)+ 子代理工具 ----
     const agentDefs = getAgentDefinitions(this.store)
@@ -625,22 +657,33 @@ export class PiAgentService {
   }
 
   /**
-   * MCP 配置变更后刷新所有已打开会话:空闲立即重建(同 sessionId,JSONL 恢复上下文),
-   * 忙碌挂起(mcpRebuildPending,下一回合 prompt 入口消费);只读工作区不注册 MCP 工具,跳过。
-   * 先快照 handles 再遍历(rebuildHandle 会改 map);单工作区失败独立隔离,不影响其他会话与 PUT/DELETE 响应。
+   * 配置变更后刷新所有已打开会话:空闲立即重建(同 sessionId,JSONL 恢复上下文),
+   * 忙碌挂起(rebuildPending,下一回合 prompt 入口消费);skipReadOnly=true 时只读工作区跳过
+   * (MCP 语义:只读工作区不注册 MCP 工具),false 时只读也重建(视觉开关变更:视觉工具在只读工作区也注册)。
+   * 先快照 handles 再遍历(rebuildHandle 会改 map);单工作区失败独立隔离,不影响其他会话与响应。
    */
-  async refreshMcpForOpenSessions(): Promise<void> {
+  private async rebuildAllHandles(skipReadOnly: boolean): Promise<void> {
     await Promise.all(
       [...this.handles.values()].map(async (h) => {
-        if (h.workspace.readOnly) return // 只读工作区不注册 MCP 工具,无需重建
+        if (skipReadOnly && h.workspace.readOnly) return // 只读工作区不注册 MCP 工具,无需重建
         if (h.busy) {
-          h.mcpRebuildPending = true // 不打断运行中回合,下回合开始前重建
+          h.rebuildPending = true // 不打断运行中回合,下回合开始前重建
           return
         }
         await this.rebuildHandle(h).catch((e) =>
           console.error(`[mcp] 会话重建失败(workspace=${h.workspace.id}):`, e))
       }),
     )
+  }
+
+  /** MCP 配置变更后刷新所有已打开会话(只读工作区跳过,既有行为) */
+  async refreshMcpForOpenSessions(): Promise<void> {
+    await this.rebuildAllHandles(true)
+  }
+
+  /** 视觉开关变更后刷新所有已打开会话(含只读工作区:视觉工具在只读工作区也注册) */
+  async refreshOpenSessions(): Promise<void> {
+    await this.rebuildAllHandles(false)
   }
 
   /** 新建会话:保留旧会话(JSONL 不动),创建全新会话并激活 */
@@ -741,10 +784,10 @@ export class PiAgentService {
   ): Promise<void> {
     let handle = await this.openSession(workspace)
     if (handle.busy) throw new Error('agent 正在处理中,请稍候')
-    // MCP 配置变更挂起重建:本回合开始前消费。顺序关键:busy 检查先行,
+    // 配置变更挂起重建:本回合开始前消费。顺序关键:busy 检查先行,
     // 用户在上一个回合仍在运行时发消息 → 先抛「正在处理中」,绝不 dispose 运行中的会话;
     // rebuildHandle 内部已兜底(失败回退新建),prompt 不会被重建异常打断。
-    if (handle.mcpRebuildPending) handle = await this.rebuildHandle(handle)
+    if (handle.rebuildPending) handle = await this.rebuildHandle(handle)
     handle.busy = true
     handle.lastActivityAt = Date.now()
     // 新回合:重置回合内标志(闸门 / 任务完成 / 子代理调用),挂载事件发射器(子代理工具经此转发 sub_* 事件)

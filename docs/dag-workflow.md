@@ -87,6 +87,7 @@ write: [...]             # 可写目标;省略 = 纯只读;** = 全量写
 **子代理工具集补充(与实现对齐)**:除只读基础工具与 write 白名单外,所有子代理(explorer / planner / executor / reviewer)均注册:
 
 - `anysearch-search`(网络搜索):与主代理同一工厂(`createAnySearchTools`),所有子代理可联网调研外部信息(50KB 截断)
+- `vision-understand`(视觉理解):开关开启且配置小米 key 时注册(注册门 `visionAvailable` 单一事实源,与主代理一致);调小米 mimo-v2.5 识图(工作区内图片路径 + 问题 → 文字描述);只读工作区也注册;路径守卫内置于工具
 
 ## 5. 数据模型
 

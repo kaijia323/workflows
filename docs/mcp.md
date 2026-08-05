@@ -43,7 +43,7 @@ piService.openSession / subAgent.runSubAgent ──▶ createMcpTools(manager, s
 ## 3. 工具命名与冲突策略
 
 - 统一前缀 `mcp__<server>__<tool>`,如 `mcp__github__create_issue`
-- `mcp__` 前缀与内置工具(`read/bash/edit/write/grep/find/ls`)、仓库工具(`fff-find/fff-grep/anysearch-search`)、
+- `mcp__` 前缀与内置工具(`read/bash/edit/write/grep/find/ls`)、仓库工具(`fff-find/fff-grep/anysearch-search/vision-understand`)、
   编排工具(`wait_for_approval/complete_task`、子代理名)零冲突
 - server 名由配置校验保证唯一 → 跨 server 无冲突
 - 清洗:`[^a-zA-Z0-9_-]` → `_`、压缩连续 `_`、去首尾 `_`(全符号名清洗后为空 → 跳过);

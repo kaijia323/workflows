@@ -21,7 +21,7 @@ import {
   type ToolDefinition,
 } from '@earendil-works/pi-coding-agent'
 import type { SessionEvent, Workspace } from '@workflows/shared'
-import { loadConfig, type WorkflowsStore } from '../config.js'
+import { loadConfig, visionAvailable, type WorkflowsStore } from '../config.js'
 import { loadMcpServers } from '../mcpConfig.js'
 import type { AgentDefinition } from './agentDefs.js'
 import { compileWriteMatcher, isWriteAllowed, type WriteMatcher } from './agentDefs.js'
@@ -29,6 +29,7 @@ import { createPromptOnlyLoader, skillReadRoots, type SkillLoadContext } from '.
 import type { FffIndexManager } from './fffTools.js'
 import { createFffFindTool, createFffGrepTool } from './fffTools.js'
 import { createAnySearchTools } from './anySearchTools.js'
+import { createVisionTools } from './visionTools.js'
 import { McpManager, createMcpTools } from './mcpTools.js'
 import type { RunFile } from './runManager.js'
 import { guardPathTool, toToolDefinition, createWorkspaceBashHook } from './workspaceGuard.js'
@@ -105,8 +106,10 @@ export function buildSubAgentTools(options: {
   extraAllowedRoots?: string[]
   /** MCP 外部工具(调用方已构建;缺省 [] 保持现有行为) */
   mcpTools?: ToolDefinition[]
+  /** 视觉理解工具(调用方按 visionAvailable 构建后传入;缺省 [] 保持现有行为) */
+  visionTools?: ToolDefinition[]
 }): { tools: ToolDefinition[]; activeNames: string[] } {
-  const { workspace, definition, fff, matcher, getAnySearchApiKey, extraAllowedRoots = [], mcpTools = [] } = options
+  const { workspace, definition, fff, matcher, getAnySearchApiKey, extraAllowedRoots = [], mcpTools = [], visionTools = [] } = options
   const builtinTools = createReadOnlyTools(workspace.path).filter(
     (tool) => tool.name !== 'grep' && tool.name !== 'find',
   )
@@ -123,12 +126,15 @@ export function buildSubAgentTools(options: {
   // MCP 外部工具:调用方已构建(共享 McpManager,不新增连接);
   // 注意:工具名白名单必须与 customTools 同步显式列入(与 anysearch 同纪律)
   tools.push(...mcpTools)
+  // 视觉理解工具:调用方已构建(注册门 visionAvailable 在主/子代理共用);白名单同纪律
+  tools.push(...visionTools)
   const activeNames = [
     'read',
     'ls',
     ...tools.filter((t) => t.name.startsWith('fff-')).map((t) => t.name),
     'anysearch-search',
     ...mcpTools.map((t) => t.name),
+    ...visionTools.map((t) => t.name),
   ]
 
   const writePatterns = definition.frontmatter.write
@@ -360,12 +366,22 @@ export async function runSubAgent(options: RunSubAgentOptions): Promise<SubAgent
   const mcpTools = workspace.readOnly
     ? []
     : await createMcpTools(mcp, mcpServers, (name) => loadMcpServers(store).find((s) => s.name === name))
+  // 视觉理解工具:与主代理同门(visionAvailable 单一事实源);只读工作区也注册(无副作用只读 HTTP 工具,对齐 anysearch);
+  // 守卫内置于工具;key 经 getApiKey 回调动态读取(保存 key 后下次调用立即生效)
+  const visionTools = visionAvailable(store)
+    ? createVisionTools({
+        workspacePath: workspace.path,
+        extraAllowedRoots: skillReadRoots(skillCtx),
+        getApiKey: () => loadConfig(store).visionApiKey ?? undefined,
+      })
+    : []
   const { tools, activeNames } = buildSubAgentTools({
     workspace,
     definition,
     fff,
     matcher,
     mcpTools,
+    visionTools,
     getAnySearchApiKey: () => loadConfig(store).anySearchApiKey ?? undefined,
     extraAllowedRoots: skillReadRoots(skillCtx),
   })

@@ -5,7 +5,7 @@
  * 直接返回提示文本(零落盘);有进行中 run 时行为完全不变(置 done / awaiting_approval + 落盘)。
  * 通过私有构造 + 注入 fake handle 的方式直测真实 execute 路径(piService 无既有测试基建)。
  */
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import path from 'node:path'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -13,6 +13,7 @@ import type { Workspace } from '@workflows/shared'
 import type { RunStatus } from '@workflows/shared'
 import type { ModelRuntime } from '@earendil-works/pi-coding-agent'
 import type { WorkflowsStore } from '../config.js'
+import { loadConfig } from '../config.js'
 import { PiAgentService } from './piService.js'
 import { loadRun, type RunFile } from './runManager.js'
 
@@ -210,6 +211,40 @@ describe('wait_for_approval 工具 execute(无 run 不创建)', () => {
       expect(persisted?.status).toBe('awaiting_approval')
       expect(persisted?.gate.pending).toBe(true)
       expect(handle.turnWaitCalled).toBe(true)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('setVisionConfig(开关翻转触发会话重建,key-only 不重建)', () => {
+  it('开关翻转 → 调用 refreshOpenSessions;仅 key 变更 → 不调用;配置落盘', async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'wf-pi-'))
+    try {
+      const store = makeStore(dir)
+      const service = makeService(store)
+      const api = service as unknown as {
+        setVisionConfig(patch: { enabled?: boolean; apiKey?: string }): Promise<void>
+        refreshOpenSessions(): Promise<void>
+      }
+      const refresh = vi.spyOn(api, 'refreshOpenSessions').mockResolvedValue()
+
+      // 默认关 → 开:开关翻转,重建
+      await api.setVisionConfig({ enabled: true, apiKey: 'sk-a' })
+      expect(refresh).toHaveBeenCalledTimes(1)
+
+      // 开关不变,仅 key 变更:不重建(getApiKey 动态读取,已注册工具下次调用即用新 key)
+      await api.setVisionConfig({ enabled: true, apiKey: 'sk-b' })
+      expect(refresh).toHaveBeenCalledTimes(1)
+
+      // 开 → 关:开关翻转,重建
+      await api.setVisionConfig({ enabled: false })
+      expect(refresh).toHaveBeenCalledTimes(2)
+
+      // 磁盘断言:开关与 key 均落盘(空串删除语义由 config.ts 覆盖)
+      const stored = loadConfig(store)
+      expect(stored.visionEnabled).toBe(false)
+      expect(stored.visionApiKey).toBe('sk-b')
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }

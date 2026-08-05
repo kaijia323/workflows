@@ -208,6 +208,51 @@ describe('buildSubAgentTools 子代理工具集(mcpTools 注册)', () => {
   })
 })
 
+describe('buildSubAgentTools 子代理工具集(visionTools 注册)', () => {
+  const ROLES = ['explorer', 'planner', 'executor', 'reviewer']
+  const stubFff = { get: () => undefined } as unknown as FffIndexManager
+  const fakeVisionTool = {
+    name: 'vision-understand',
+    label: 'vision-understand',
+    description: '视觉理解工具',
+    parameters: { type: 'object' },
+    execute: async () => ({ content: [{ type: 'text' as const, text: 'x' }], details: undefined }),
+  } satisfies ToolDefinition
+
+  it.each(ROLES)('%s:传入 visionTools 时 tools 与 activeNames 均含该工具名(恰一次)', (role) => {
+    const { dir, workspace } = makeWorkspace()
+    try {
+      const { tools, activeNames } = buildSubAgentTools({
+        workspace,
+        definition: makeDef(role, role === 'executor' ? ['**'] : undefined),
+        fff: stubFff,
+        matcher: undefined,
+        visionTools: [fakeVisionTool],
+      })
+      expect(activeNames.filter((n) => n === 'vision-understand')).toHaveLength(1)
+      expect(tools.filter((t) => t.name === 'vision-understand')).toHaveLength(1)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it.each(ROLES)('%s:缺省 visionTools 时不包含(既有行为不变)', (role) => {
+    const { dir, workspace } = makeWorkspace()
+    try {
+      const { tools, activeNames } = buildSubAgentTools({
+        workspace,
+        definition: makeDef(role, role === 'executor' ? ['**'] : undefined),
+        fff: stubFff,
+        matcher: undefined,
+      })
+      expect(activeNames.some((n) => n === 'vision-understand')).toBe(false)
+      expect(tools.some((t) => t.name === 'vision-understand')).toBe(false)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+})
+
 describe('toSubEvents 事件镜像', () => {
   it('toolResult 消息不镜像为 sub_message_start(回归:模态窗空消息光标)', () => {
     const events = toSubEvents('c1', msgEvent('toolResult'))

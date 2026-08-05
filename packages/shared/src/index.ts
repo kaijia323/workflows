@@ -66,6 +66,10 @@ export interface AgentConfig {
   hasApiKey: boolean
   /** 是否已配置 AnySearch API key(env ANYSEARCH_API_KEY 优先于配置文件) */
   hasAnySearchApiKey: boolean
+  /** 视觉模型开关(默认关;开启且配置 key 后,主/子代理注册 vision-understand 工具) */
+  visionEnabled: boolean
+  /** 是否已配置小米视觉 API key(env XIAOMI_API_KEY 或配置文件;key 本身不回传前端) */
+  hasVisionApiKey: boolean
   /** 当前模型 id */
   model: string
   /** 当前思考级别 */

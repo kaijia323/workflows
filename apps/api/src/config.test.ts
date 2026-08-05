@@ -1,8 +1,18 @@
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
-import { addWorkspace, listDirectory, samePath, type WorkflowsStore } from './config.js'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import {
+  addWorkspace,
+  getVisionEnabled,
+  hasVisionApiKey,
+  listDirectory,
+  loadConfig,
+  samePath,
+  setVisionConfig,
+  visionAvailable,
+  type WorkflowsStore,
+} from './config.js'
 
 const tempDirs: string[] = []
 
@@ -28,6 +38,7 @@ function createTestStore(): WorkflowsStore {
 }
 
 afterEach(() => {
+  vi.unstubAllEnvs()
   for (const dir of tempDirs.splice(0)) rmSync(dir, { recursive: true, force: true })
 })
 
@@ -104,5 +115,67 @@ describe('listDirectory', () => {
 
     expect(addWorkspace(store, dir)?.path).toBe(path.resolve(dir))
     expect(addWorkspace(store, dir.toUpperCase())).toBeUndefined()
+  })
+})
+
+describe('vision 配置(visionEnabled / visionApiKey)', () => {
+  it('setVisionConfig 持久化开关与 key;getVisionEnabled 默认关', () => {
+    const store = createTestStore()
+    expect(getVisionEnabled(store)).toBe(false)
+    expect(hasVisionApiKey(store)).toBe(false)
+    expect(visionAvailable(store)).toBe(false)
+
+    setVisionConfig(store, { enabled: true, apiKey: 'sk-xiaomi-123' })
+
+    const stored = loadConfig(store)
+    expect(stored.visionEnabled).toBe(true)
+    expect(stored.visionApiKey).toBe('sk-xiaomi-123')
+    expect(getVisionEnabled(store)).toBe(true)
+    expect(hasVisionApiKey(store)).toBe(true)
+    expect(visionAvailable(store)).toBe(true)
+  })
+
+  it('空串 apiKey = 删除(复用 saveConfig 语义)', () => {
+    const store = createTestStore()
+    setVisionConfig(store, { enabled: true, apiKey: 'sk-x' })
+    setVisionConfig(store, { enabled: true, apiKey: '' })
+
+    expect(loadConfig(store).visionApiKey).toBeUndefined()
+    expect(loadConfig(store).visionEnabled).toBe(true)
+    expect(hasVisionApiKey(store)).toBe(false)
+    expect(visionAvailable(store)).toBe(false)
+  })
+
+  it('visionAvailable 门 = 开关开 && 有 key(env XIAOMI_API_KEY 或配置 key)', () => {
+    const store = createTestStore()
+    // 开关关 + key → false
+    setVisionConfig(store, { enabled: false, apiKey: 'sk-x' })
+    expect(visionAvailable(store)).toBe(false)
+    // 开关开 + 无 key → false
+    setVisionConfig(store, { enabled: true, apiKey: '' })
+    expect(visionAvailable(store)).toBe(false)
+    // 开关开 + 配置 key → true
+    setVisionConfig(store, { apiKey: 'sk-x' })
+    expect(visionAvailable(store)).toBe(true)
+  })
+
+  it('env XIAOMI_API_KEY 优先:注入后 hasVisionApiKey/visionAvailable 为 true,卸载后回退配置', () => {
+    const store = createTestStore()
+    // 无 env、无配置 → false
+    expect(hasVisionApiKey(store)).toBe(false)
+
+    vi.stubEnv('XIAOMI_API_KEY', 'env-key')
+    setVisionConfig(store, { enabled: true })
+    expect(hasVisionApiKey(store)).toBe(true)
+    expect(visionAvailable(store)).toBe(true)
+
+    vi.unstubAllEnvs()
+    // env 卸载后回退配置:配置无 key → false
+    expect(hasVisionApiKey(store)).toBe(false)
+    expect(visionAvailable(store)).toBe(false)
+    // 配置 key 兜底
+    setVisionConfig(store, { apiKey: 'sk-cfg' })
+    expect(hasVisionApiKey(store)).toBe(true)
+    expect(visionAvailable(store)).toBe(true)
   })
 })

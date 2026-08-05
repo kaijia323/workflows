@@ -24,6 +24,10 @@ interface StoredConfig {
   apiKey?: string
   /** AnySearch 搜索 API key(可选;env ANYSEARCH_API_KEY 优先于配置文件) */
   anySearchApiKey?: string
+  /** 视觉模型开关(默认关;开启且配置 key 后,主/子代理注册 vision-understand 工具) */
+  visionEnabled?: boolean
+  /** 小米视觉 API key(可选;env XIAOMI_API_KEY 优先于配置文件;明文存储,不回传前端) */
+  visionApiKey?: string
   model?: string
   thinkingLevel?: string
   /** planner 重做上限(可选):缺省/0/负数 = 无上限;≥1 的数字 = 同一 run 内 planner 最多调用 N 次 */
@@ -117,6 +121,36 @@ export function setAnySearchApiKey(store: WorkflowsStore, key: string): void {
 /** 是否已配置 AnySearch key(不把 key 本身返回给前端) */
 export function hasAnySearchApiKey(store: WorkflowsStore): boolean {
   return Boolean(loadConfig(store).anySearchApiKey)
+}
+
+/**
+ * 保存视觉模型开关与小米 key(空串 apiKey = 删除,由 saveConfig 处理;开关翻转由 piService 负责会话重建)。
+ * patch 用业务键(enabled/apiKey),映射到存储键(visionEnabled/visionApiKey);未提供的字段不触碰。
+ */
+export function setVisionConfig(store: WorkflowsStore, patch: { enabled?: boolean; apiKey?: string }): void {
+  const stored: Partial<StoredConfig> = {}
+  if (patch.enabled !== undefined) stored.visionEnabled = patch.enabled
+  if (patch.apiKey !== undefined) stored.visionApiKey = patch.apiKey
+  saveConfig(store, stored)
+}
+
+/** 视觉模型开关是否开启(默认关) */
+export function getVisionEnabled(store: WorkflowsStore): boolean {
+  return loadConfig(store).visionEnabled === true
+}
+
+/** 是否已配置小米视觉 key(env XIAOMI_API_KEY 优先于配置文件;不把 key 本身返回给前端) */
+export function hasVisionApiKey(store: WorkflowsStore): boolean {
+  if (process.env.XIAOMI_API_KEY?.trim()) return true
+  return Boolean(loadConfig(store).visionApiKey)
+}
+
+/**
+ * 视觉工具注册门(主/子代理共用单一事实源):开关开 && (env XIAOMI_API_KEY || 配置 key)。
+ * 任一不满足 → 不注册(模型视野中无 vision-understand 工具)。
+ */
+export function visionAvailable(store: WorkflowsStore): boolean {
+  return getVisionEnabled(store) && Boolean(process.env.XIAOMI_API_KEY?.trim() || hasVisionApiKey(store))
 }
 
 /* ---------------- workspaces.json ---------------- */

@@ -27,7 +27,7 @@ interface FakeHandle {
   usage: { input: number; output: number; cacheRead: number; cacheWrite: number; totalTokens: number; cost: number }
   busy: boolean
   lastActivityAt: number | null
-  mcpRebuildPending?: boolean
+  rebuildPending?: boolean
   run: null
   turnWaitCalled: boolean
   turnCompleteCalled: boolean
@@ -40,6 +40,7 @@ type TestApi = {
   openSession(workspace: Workspace, sessionId?: string): Promise<FakeHandle>
   rebuildHandle(handle: FakeHandle): Promise<FakeHandle>
   refreshMcpForOpenSessions(): Promise<void>
+  refreshOpenSessions(): Promise<void>
 }
 
 function makeStore(dir: string): WorkflowsStore {
@@ -109,13 +110,13 @@ describe('refreshMcpForOpenSessions(空闲立即重建)', () => {
       expect(api.handles.get('w1')).toBe(freshHandle)
       expect(freshHandle.usage).toEqual(oldHandle.usage)
       expect(freshHandle.lastActivityAt).toBe(oldHandle.lastActivityAt)
-      expect(freshHandle.mcpRebuildPending).toBeUndefined()
+      expect(freshHandle.rebuildPending).toBeUndefined()
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
   })
 
-  it('忙碌 handle:不 dispose、不重建,置 mcpRebuildPending=true', async () => {
+  it('忙碌 handle:不 dispose、不重建,置 rebuildPending=true', async () => {
     const dir = mkdtempSync(path.join(tmpdir(), 'wf-mcp-refresh-'))
     try {
       const service = makeService(makeStore(dir))
@@ -129,7 +130,7 @@ describe('refreshMcpForOpenSessions(空闲立即重建)', () => {
 
       expect(busyHandle.session.dispose).not.toHaveBeenCalled()
       expect(openSession).not.toHaveBeenCalled()
-      expect(busyHandle.mcpRebuildPending).toBe(true)
+      expect(busyHandle.rebuildPending).toBe(true)
       expect(api.handles.get('w1')).toBe(busyHandle)
     } finally {
       rmSync(dir, { recursive: true, force: true })
@@ -149,7 +150,7 @@ describe('refreshMcpForOpenSessions(空闲立即重建)', () => {
       await api.refreshMcpForOpenSessions()
 
       expect(roHandle.session.dispose).not.toHaveBeenCalled()
-      expect(roHandle.mcpRebuildPending).toBeUndefined()
+      expect(roHandle.rebuildPending).toBeUndefined()
       expect(openSession).not.toHaveBeenCalled()
       expect(api.handles.get('w1')).toBe(roHandle)
     } finally {
@@ -187,6 +188,56 @@ describe('refreshMcpForOpenSessions(空闲立即重建)', () => {
       expect(api.handles.get('w-bad')).toBeUndefined()
       expect(errorLog).toHaveBeenCalled()
       expect(openSession).toHaveBeenCalledTimes(3)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('refreshOpenSessions(视觉开关变更,只读也重建)', () => {
+  it('只读工作区 handle 同样重建(与 refreshMcpForOpenSessions 的跳过语义不同)', async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'wf-mcp-refresh-'))
+    try {
+      const service = makeService(makeStore(dir))
+      const api = service as unknown as TestApi
+      const workspace = makeWorkspace(dir, { readOnly: true })
+      const roHandle = makeHandle(workspace)
+      api.handles.set('w1', roHandle)
+      const freshHandle = makeHandle(workspace, {
+        usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: 0 },
+      })
+      const openSession = vi.spyOn(api, 'openSession').mockImplementation(async () => {
+        api.handles.set('w1', freshHandle)
+        return freshHandle
+      })
+
+      await api.refreshOpenSessions()
+
+      expect(roHandle.session.dispose).toHaveBeenCalledTimes(1)
+      expect(openSession).toHaveBeenCalledWith(workspace, 's1')
+      expect(api.handles.get('w1')).toBe(freshHandle)
+      expect(freshHandle.usage).toEqual(roHandle.usage)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('忙碌 handle:不 dispose、不重建,置 rebuildPending=true(与 MCP 刷新共用挂起机制)', async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'wf-mcp-refresh-'))
+    try {
+      const service = makeService(makeStore(dir))
+      const api = service as unknown as TestApi
+      const workspace = makeWorkspace(dir, { readOnly: true })
+      const busyHandle = makeHandle(workspace, { busy: true })
+      api.handles.set('w1', busyHandle)
+      const openSession = vi.spyOn(api, 'openSession').mockResolvedValue(makeHandle(workspace))
+
+      await api.refreshOpenSessions()
+
+      expect(busyHandle.session.dispose).not.toHaveBeenCalled()
+      expect(openSession).not.toHaveBeenCalled()
+      expect(busyHandle.rebuildPending).toBe(true)
+      expect(api.handles.get('w1')).toBe(busyHandle)
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
@@ -240,14 +291,14 @@ describe('prompt() 挂起重建消费', () => {
       const service = makeService(makeStore(dir))
       const api = service as unknown as TestApi
       const workspace = makeWorkspace(dir)
-      const busyHandle = makeHandle(workspace, { busy: true, mcpRebuildPending: true })
+      const busyHandle = makeHandle(workspace, { busy: true, rebuildPending: true })
       api.handles.set('w1', busyHandle)
       vi.spyOn(api, 'openSession').mockResolvedValue(busyHandle)
 
       await expect(service.prompt(workspace, 'hi', () => {})).rejects.toThrow('agent 正在处理中,请稍候')
 
       expect(busyHandle.session.dispose).not.toHaveBeenCalled()
-      expect(busyHandle.mcpRebuildPending).toBe(true) // 挂起标记保留,下一回合生效
+      expect(busyHandle.rebuildPending).toBe(true) // 挂起标记保留,下一回合生效
       expect(api.handles.get('w1')).toBe(busyHandle)
     } finally {
       rmSync(dir, { recursive: true, force: true })
@@ -261,7 +312,7 @@ describe('prompt() 挂起重建消费', () => {
       const api = service as unknown as TestApi
       const workspace = makeWorkspace(dir)
       const oldHandle = makeHandle(workspace, {
-        mcpRebuildPending: true,
+        rebuildPending: true,
         session: {
           dispose: vi.fn(),
           subscribe: vi.fn(() => () => {}),
