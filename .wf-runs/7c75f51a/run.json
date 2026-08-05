@@ -1,0 +1,37 @@
+{
+  "runId": "7c75f51a",
+  "sessionId": "8df4b8a9-d85c-4691-b9a7-04c72ae9bf72",
+  "status": "done",
+  "gate": {
+    "pending": false,
+    "planFile": null
+  },
+  "createdAt": 1785938133203,
+  "updatedAt": 1785938328702,
+  "agents": [
+    {
+      "callId": "call_00_1Xi9VFY9Rtp4qqPRzbdI7816",
+      "agent": "explorer",
+      "summary": "调研完成,报告已写入 `.wf-runs/7c75f51a/01-exploration-1.md`。\n\n## 摘要\n\n**问题定位(单文件可解)**:`apps/web/src/components/SubAgentModal.vue` footer(L159-174)用纯文本 `{{ summary }}`(L161-167)重复渲染了摘要。\n\n**重复根因(同一份文本两条路径)**:\n- 后端 `extractSummary()`(subAgent.ts)取子代理**最后一条 assistant 文本**作为 summary → `sub_end` 事件(piService.ts)→ `useAgent.ts` L556 写入 `sub.summary`\n- 而这段文本已作为最后一条 assistant 消息,经 `sub_text_delta` 流式进入 `sub.messages`,在模态窗 body 由 `MessageBubble.vue` L111 `renderMarkdown(block.text)` **markdown 渲染**——内容区与 footer 展示的是同一份文本\n\n**模态窗布局**:header(L83-108,含唯一关闭按钮)→ 思考工具条(L110-122)→ body 消息流(L124-157,MessageBubble)→ footer(L159-174:摘要 L161-167 + **产物 artifact L168-173 需保留**)\n\n**移除方案(最小改动,仅 SubAgentModal.vue)**:\n1. 删模板 L161-167 摘要 `<p>` 块(保留 artifact 块)\n2. 删脚本 L32 `const summary = computed(...)`(删后无引用,防 noUnusedLocals)\n\n**风险点**:失败调用时 `summary` = 错误消息,该文本不在 sub.messages 消息流中,移除后模态窗内不再显示失败原因(主消息流工具块仍有);`sub_end` 的 summary 后端逻辑不可删(DagPanel 的 run 快照在用)。\n\n**测试**:无 SubAgentModal 组件测试;`useAgent.test.ts` L226 只断言 `sub.summary` 状态值,不受渲染改动影响。",
+      "artifact": ".wf-runs\\7c75f51a\\01-exploration-1.md",
+      "sessionFile": "sessions\\857395d8-e02b-4b8c-9b07-5144bbf849cd\\sub\\7c75f51a\\2026-08-05T13-55-33-213Z_019fd235-40dd-7cda-bb55-96e1fdbce4be.jsonl",
+      "ts": 1785938224190
+    },
+    {
+      "callId": "call_00_m60dCccbZ2JvqrnODQEI3854",
+      "agent": "executor",
+      "summary": "执行完成。\n\n**改动文件**:`apps/web/src/components/SubAgentModal.vue`(唯一)\n- 删除脚本 `const summary = computed(...)`(移除模板引用后无引用,避免 noUnusedLocals 报错)\n- 删除 footer 摘要 `<p v-if=\"summary\">…</p>` 块,artifact 块原样保留;注释同步改为「底部:产物」\n- 净效果:-7/+0 行\n\n**自检**:`pnpm typecheck`(`vue-tsc -b`)通过,0 错误;文件内 `summary` 无残留引用。未动 useAgent.ts、后端 extractSummary、DagPanel 等。\n\n**执行报告**:已写入 `.wf-runs/7c75f51a/03-execution-1.md`。",
+      "artifact": ".wf-runs\\7c75f51a\\03-execution-1.md",
+      "sessionFile": "sessions\\857395d8-e02b-4b8c-9b07-5144bbf849cd\\sub\\7c75f51a\\2026-08-05T13-57-13-407Z_019fd236-c83f-7c25-bf6f-9e9736108853.jsonl",
+      "ts": 1785938266507
+    },
+    {
+      "callId": "call_00_xJhEcsGQND6SikWotC018298",
+      "agent": "reviewer",
+      "summary": "审查完成,结论摘要:\n\n**结论:pass** — 报告已写入 `.wf-runs/7c75f51a/04-review-1.md`\n\n逐条核对:\n1. ✅ footer 摘要 `<p>`(`{{ summary }}`)已删除;artifact 产物块原样保留(`<p v-if=\"artifact\">`)\n2. ✅ `const summary = computed(...)` 已删除;全文件 grep `summary` 0 残留,不触发 noUnusedLocals\n3. ✅ 仅改 `SubAgentModal.vue`:useAgent.ts(L42/L50/L556/L592)、DagPanel.vue(L40)、后端 `extractSummary`(subAgent.ts L252/L420)均完好\n4. ✅ 类型检查通过(执行报告 0 错误;静态复核:剩余声明/导入/模板引用全部有对应,无悬挂引用)\n\n无阻塞问题;一处非阻塞观察(fail 场景错误摘要不再显示,属已知产品取舍)。最终建议:**通过**。\n\n说明:本环境无 shell 工具,无法直接执行 `git diff`/`pnpm typecheck`,审查基于改动文件全文精读、全仓 grep 交叉核验与执行报告 diff 记录。",
+      "artifact": ".wf-runs\\7c75f51a\\04-review-1.md",
+      "sessionFile": "sessions\\857395d8-e02b-4b8c-9b07-5144bbf849cd\\sub\\7c75f51a\\2026-08-05T13-57-51-127Z_019fd237-5b97-70a1-a344-0b407e730eb8.jsonl",
+      "ts": 1785938323801
+    }
+  ]
+}
