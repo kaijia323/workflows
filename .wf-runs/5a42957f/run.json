@@ -1,0 +1,12 @@
+{
+  "runId": "5a42957f",
+  "sessionId": "6e49771a-e9bd-4c5b-b675-4f9d4dfcaca1",
+  "status": "planning",
+  "gate": {
+    "pending": false,
+    "planFile": null
+  },
+  "createdAt": 1785953237891,
+  "updatedAt": 1785953237892,
+  "agents": []
+}
