@@ -64,9 +64,9 @@ function fmt(n: number | undefined): string {
       </div>
       <!-- 工作区 -->
       <section>
-        <h3 class="section-label">
+        <p class="section-label">
           工作区
-        </h3>
+        </p>
         <template v-if="ws">
           <p class="truncate text-[13px] font-medium text-ink">
             {{ ws.name }}
@@ -92,9 +92,9 @@ function fmt(n: number | undefined): string {
 
       <!-- 会话 -->
       <section>
-        <h3 class="section-label">
+        <p class="section-label">
           会话
-        </h3>
+        </p>
         <dl
           v-if="ws"
           class="space-y-1.5 font-mono text-[10px]"
@@ -146,9 +146,9 @@ function fmt(n: number | undefined): string {
 
       <!-- Token 用量 -->
       <section>
-        <h3 class="section-label">
+        <p class="section-label">
           用量
-        </h3>
+        </p>
         <template v-if="ws && status?.usage">
           <div class="grid grid-cols-2 gap-1.5">
             <div class="metric">
@@ -182,9 +182,9 @@ function fmt(n: number | undefined): string {
 
       <!-- 工具调用流 -->
       <section>
-        <h3 class="section-label">
+        <p class="section-label">
           工具流
-        </h3>
+        </p>
         <ul
           v-if="recentRuns.length > 0"
           class="space-y-1"
@@ -213,9 +213,9 @@ function fmt(n: number | undefined): string {
 
       <!-- 系统 -->
       <section>
-        <h3 class="section-label">
+        <p class="section-label">
           系统
-        </h3>
+        </p>
         <dl
           v-if="meta"
           class="space-y-1.5 font-mono text-[10px]"

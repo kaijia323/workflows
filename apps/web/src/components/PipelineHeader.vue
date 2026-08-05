@@ -27,9 +27,9 @@ const processingDetail = computed(() => (props.streaming ? '运行中' : props.m
       <span class="grid size-6 place-items-center rounded-sm border border-primary/60 bg-primary/10">
         <span class="size-1.5 bg-primary" />
       </span>
-      <span class="font-display text-sm font-semibold tracking-[0.18em] text-ink">
+      <h1 class="font-display text-sm font-semibold tracking-[0.18em] text-ink">
         WORKFLOWS
-      </span>
+      </h1>
       <span class="mt-0.5 hidden font-mono text-[10px] tracking-wider text-mute xl:inline">AGENT CONSOLE</span>
     </div>
 
