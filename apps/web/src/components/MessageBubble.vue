@@ -85,6 +85,7 @@ function formatTokens(n: number | undefined): string {
             <button
               type="button"
               class="flex w-full items-center gap-2 px-4 py-1.5 text-left font-mono text-[10px] tracking-wider text-mute transition hover:bg-canvas-soft"
+              :aria-expanded="isThinkingBlockOpen(message, plan, block.key)"
               @click="emit('toggle-thinking', message, block.key)"
             >
               <span
@@ -120,6 +121,7 @@ function formatTokens(n: number | undefined): string {
             <button
               type="button"
               class="flex w-full items-center gap-2 px-4 py-1.5 text-left transition hover:bg-canvas-soft"
+              :aria-expanded="!block.tool.collapsed"
               @click="emit('tool-click', message, block.tool.callId, block.tool.name)"
             >
               <span
