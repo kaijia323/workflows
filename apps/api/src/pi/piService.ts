@@ -107,8 +107,8 @@ export class PiAgentService {
   private readonly fff = new FffIndexManager()
   /** MCP server 连接管理器(跨主/子代理共享连接;配置变更时 disposeServer) */
   private readonly mcp = new McpManager()
-  /** 当前 prompt 回合的 SSE 事件回调(子代理工具执行时经此转发 sub_* 事件) */
-  private activeEmitter: ((event: SessionEvent) => void) | null = null
+  /** 各工作区当前 prompt 回合的 SSE 事件回调(子代理/闸门事件经此转发);key = workspace.id */
+  private readonly activeEmitters = new Map<string, (event: SessionEvent) => void>()
 
   private constructor(store: WorkflowsStore, runtime: ModelRuntime) {
     this.store = store
@@ -430,7 +430,7 @@ export class PiAgentService {
 
   /**
    * 子代理工具:主代理调用时启动独立子代理会话。
-   * 事件镜像(sub_* 事件 + callId)经 activeEmitter 转发给前端。
+   * 事件镜像(sub_* 事件 + callId)经 activeEmitters(按 workspace.id 隔离)转发给前端。
    */
   private createSubAgentTool(workspace: Workspace, def: import('./agentDefs.js').AgentDefinition): ToolDefinition {
     const name = def.frontmatter.name
@@ -484,7 +484,7 @@ export class PiAgentService {
             task,
             model,
             thinkingLevel,
-            onEvent: (evt) => this.activeEmitter?.(evt),
+            onEvent: (evt) => this.activeEmitters.get(workspace.id)?.(evt),
             onProgress: (delta) => onUpdate?.({ content: [{ type: 'text' as const, text: delta }], details: undefined }),
             signal,
           })
@@ -500,7 +500,7 @@ export class PiAgentService {
             sessionFile: error instanceof SubAgentError ? error.sessionFile : null,
             ts: Date.now(),
           })
-          this.activeEmitter?.({
+          this.activeEmitters.get(workspace.id)?.({
             type: 'sub_end',
             callId,
             agentName: name,
@@ -519,7 +519,7 @@ export class PiAgentService {
           sessionFile: result.sessionFile,
           ts: Date.now(),
         })
-        this.activeEmitter?.({
+        this.activeEmitters.get(workspace.id)?.({
           type: 'sub_end',
           callId,
           agentName: name,
@@ -560,7 +560,7 @@ export class PiAgentService {
         run.gate = { pending: true, planFile: detectPlanFile(workspace.path, run) }
         saveRun(workspace.path, run)
         handle.turnWaitCalled = true
-        this.activeEmitter?.({
+        this.activeEmitters.get(workspace.id)?.({
           type: 'gate_required',
           runId: run.runId,
           planFile: run.gate.planFile,
@@ -790,12 +790,13 @@ export class PiAgentService {
     if (handle.rebuildPending) handle = await this.rebuildHandle(handle)
     handle.busy = true
     handle.lastActivityAt = Date.now()
-    // 新回合:重置回合内标志(闸门 / 任务完成 / 子代理调用),挂载事件发射器(子代理工具经此转发 sub_* 事件)
+    // 新回合:重置回合内标志(闸门 / 任务完成 / 子代理调用),挂载事件发射器
+    // (子代理/闸门事件经此转发到本回合 SSE 流,按 workspace.id 隔离,跨工作区并发不串流)
     handle.turnWaitCalled = false
     handle.turnCompleteCalled = false
     handle.turnSubAgentCalled = false
     let turnFailed = false
-    this.activeEmitter = onEvent
+    this.activeEmitters.set(workspace.id, onEvent)
 
     const unsubscribe = handle.session.subscribe((event) => {
       for (const mapped of mapSessionEvent(event)) {
@@ -858,7 +859,7 @@ export class PiAgentService {
       unsubscribe()
       handle.busy = false
       handle.lastActivityAt = Date.now()
-      this.activeEmitter = null
+      this.activeEmitters.delete(workspace.id)
       updateSessionMeta(this.store, workspace.id, handle.sessionId, {
         messageCount: handle.session.messages.length,
       })
