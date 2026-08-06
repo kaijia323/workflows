@@ -1,0 +1,45 @@
+{
+  "runId": "c4c0c7d6",
+  "sessionId": "01576cca-eea5-4866-937b-824906620fcc",
+  "status": "executing",
+  "gate": {
+    "pending": false,
+    "planFile": ".wf-runs\\c4c0c7d6\\02-plan-1.md"
+  },
+  "createdAt": 1786022536722,
+  "updatedAt": 1786024168929,
+  "agents": [
+    {
+      "callId": "call_00_qUfF68pNFz9G42txXm006664",
+      "agent": "explorer",
+      "summary": "调研完成,报告已写入 `.wf-runs/c4c0c7d6/01-exploration-1.md`。摘要如下:\n\n## 摘要\n\n**仓库结构**:pnpm+turbo monorepo。`pnpm preview` = build + `cross-env NODE_ENV=production node apps/api/dist/index.js`(5200,进程 cwd 即 workflows 仓库根)。主代理服务在 `apps/api/src/pi/piService.ts`,子代理在 `subAgent.ts`,工作区存储 `config.ts`,路由 `agent/routes.ts`,前端状态中心 `apps/web/src/composables/useAgent.ts`。\n\n**pwd 传递链(核心结论)**:应用层**无「回退到仓库根」的显式兜底** —— 所有工具(bash/read/ls/edit/write/fff)与 session cwd 都在 openSession/runSubAgent 时用 `workspace.path` 显式绑定并捕获;工作区对象按 id 每请求从 workspaces.json 现读。SDK 侧存在回退链 `options.cwd ?? sessionManager.getCwd() ?? process.cwd()`(sdk.js)与 `SessionManager.open` 取 JSONL header cwd(session-manager.js),但当前三处 createAgentSession 调用均显式传 cwd,未触发;JSONL header 中记录的 cwd 与工作区一一对应,可作为排查的实证锚点。\n\n**根因假设(按可能性)**:\n- **A(主)前端切换竞态**:`openWorkspace(A)` 先 await `/open(A)` 成功后才置 `activeWorkspaceId=A`;窗口期内发送的消息仍发往旧工作区 W(workflows 仓库),该回合(含全部主/子代理工具调用)在 W 会话运行;随后 `applySessionData` 把视图切成 A,而 W 回合的 SSE 事件 `handleEvent` 无工作区校验,继续渲染进 A 视图 → 用户看到「A 对话里 agent 读了 workflows 仓库」。prod 首次打开 A 时 `/open` 需建 MCP 连接/fff 索引,延迟数秒,「有概率」即命中此窗口。\n- **B** 后端 `activeEmitter` 为服务级单例,跨工作区并发回合会串流 sub_* 事件。\n- **C** SDK cwd 回退链 + session header 错位(当前未触发,列为待排查)。\n- **D** `skillReadRoots` 对 `~/.pi/agent/skills`、`~/.agents/skills`、`~/.workflows/skills` 只读放行(设计内,不改变 pwd)。\n\n**建议**:复现时核对 workspace-sessions.json 中各会话 messageCount 变化确认消息落点;前端在 openWorkspace 置 id 前禁发/发送时校验 id、SSE 事件按 workspace 归属过滤;后端 activeEmitter 改按 workspaceId 隔离。\n\n关键文件与行号、完整论证见报告文件(§5/§6)。",
+      "artifact": ".wf-runs\\c4c0c7d6\\01-exploration-1.md",
+      "sessionFile": "sessions\\857395d8-e02b-4b8c-9b07-5144bbf849cd\\sub\\c4c0c7d6\\2026-08-06T13-22-16-728Z_019fd73d-2618-735a-b52a-c0cc7158c5a9.jsonl",
+      "ts": 1786023047556
+    },
+    {
+      "callId": "call_00_yfo2xXB8MMnTZuxDZckj8070",
+      "agent": "planner",
+      "summary": "计划已写入 `.wf-runs/c4c0c7d6/02-plan-1.md`。摘要:\n\n**根因确认**:A(前端竞态,主因)——`openWorkspace` 先 await `/open` 后置 `activeWorkspaceId`,窗口期消息发往旧工作区,SSE 事件无归属校验渲染进新视图;B(后端)——`activeEmitter` 服务级单例,跨工作区并发回合 sub_* 事件串流。\n\n**P0 改动(3 文件 + 2 测试)**:\n- `apps/web/src/composables/useAgent.ts`:新增 `switchingWorkspaceId`(openWorkspace 同步置位、finally 清位)+ `openSeq` 乱序防护;sendMessage 入口拒绝(推荐取舍:拒绝 > 等待/重定向,throw 在 pushUserMessage 前,草稿保留);SSE 循环处按流快照 `streamWorkspaceId` 统一校验,归属不符则 abort 连接 + break(服务端回合继续完成,消息留旧会话不丢);abort 改为按 `streamingWorkspaceId`。\n- `apps/web/src/components/ChatPane.vue`:handleSend 上传前早退提示「正在切换工作区」。\n- `apps/api/src/pi/piService.ts`:`activeEmitter` 单例 → `activeEmitters: Map<workspace.id, cb>`,prompt set/delete(沿用 try/finally),createSubAgentTool 3 处 + gate 1 处引用改查表。主会话事件本就直连本流,无需改。\n\n**P1**:openSeq/abort 归属已并入 P0;验证阶段核对 workspace-sessions.json 与 JSONL header cwd(排查根因 C,未触发不改 SDK)。\n\n**验证**:修复前用 `/open` 临时加 3s 延迟复现(基线);修复后验证窗口期拒绝、事件归属、双标签页并发 sub_* 归位、messageCount/header cwd 落点;新增 useAgent 测试 3 例 + piService 测试 2 例(沿用既有 sseStream/私有成员直测基建)。\n\n**风险**:窗口期误伤(失败路径清位已覆盖)、服务端回合孤跑(默认 abort+break,可退化为 continue)、emitter 泄漏(测试兜底);前后端改动独立成 commit 可分别回滚。",
+      "artifact": ".wf-runs\\c4c0c7d6\\02-plan-1.md",
+      "sessionFile": "sessions\\857395d8-e02b-4b8c-9b07-5144bbf849cd\\sub\\c4c0c7d6\\2026-08-06T13-30-54-626Z_019fd745-0d22-7634-a8ed-9c0daec8b3a3.jsonl",
+      "ts": 1786023213472
+    },
+    {
+      "callId": "call_00_ZgSf7Ks4URkbIW4SfbnQ5192",
+      "agent": "executor",
+      "summary": "执行完成。\n\n## 摘要\n\n**改动文件(6 个,严格按计划范围)**\n- `apps/web/src/composables/useAgent.ts`:新增 `switchingWorkspaceId`(openWorkspace 点击即置位、仅最新一次 finally 清位)、`openSeq` 乱序防护、`streamingWorkspaceId` 流归属快照;sendMessage 在 `pushUserMessage` 前拒绝窗口期发送;SSE 循环逐行归属校验(不符即 abort 连接 + break);abort 按流归属中止;导出新状态。\n- `apps/web/src/components/ChatPane.vue`:handleSend 在上传/发送前早退,提示「正在切换工作区,请稍候…」,草稿与待发图片保留。\n- `apps/api/src/pi/piService.ts`:`activeEmitter` 单例 → `activeEmitters: Map<workspaceId, callback>`;prompt set/delete 成对(try/finally);createSubAgentTool 3 处 + gate 1 处引用改查表。\n- 测试:`useAgent.test.ts` +3(窗口期拒绝、SSE 归属断开、openSeq 乱序)、`ChatPane.test.ts` +1(早退提示,并补齐 fake agent 的 `switchingWorkspaceId`)、`piService.test.ts` +4(sub_end 双区隔离、失败 sub_end 归位、gate_required 对照、prompt finally 清空)。\n\n**验证结果**\n- 测试:api 18 文件/374 用例、web 10 文件/105 用例全过(全量 `pnpm test` 3/3)\n- 类型检查 3/3、lint 3/3、`pnpm build` 3/3 全绿(pre-commit 钩子亦复跑通过)\n\n**提交(前后端各一,可分别回滚)**\n- `f7cd97d` fix(web):工作区切换窗口期发送防护 + SSE 事件归属过滤\n- `0161fa1` fix(api):activeEmitter 单例改为按 workspace.id 隔离的 Map\n\n**未完成**:双标签页真机并发与 JSONL 落点核对、dev 冒烟属人工验收步骤,需运行环境执行;其余计划项全部完成。详细内容见 `.wf-runs/c4c0c7d6/03-execution-1.md`。",
+      "artifact": ".wf-runs\\c4c0c7d6\\03-execution-1.md",
+      "sessionFile": "sessions\\857395d8-e02b-4b8c-9b07-5144bbf849cd\\sub\\c4c0c7d6\\2026-08-06T13-35-30-523Z_019fd749-42db-73bb-9355-341cdfdf72e3.jsonl",
+      "ts": 1786023853539
+    },
+    {
+      "callId": "call_00_I8tEhfiL9l2762C7O11Y6642",
+      "agent": "reviewer",
+      "summary": "审查完成,报告已写入 `.wf-runs/c4c0c7d6/04-review-1.md`。\n\n## 摘要\n\n**结论:pass**(无阻断问题,4 项建议修 + 1 项验证缺口)\n\n**核对结果**:计划 7 项(switchingWorkspaceId 置位/清位、openSeq 乱序防护、sendMessage 窗口期拒绝、SSE 归属校验与 abort、abort 按流归属、ChatPane 早退、activeEmitters Map 隔离)全部落实,无漏项、无超范围改动(6 文件均在计划清单内)。\n\n**关键正确性确认**:\n- SSE 校验在循环处、handleEvent 前,以流快照 streamWorkspaceId 为固定参照,detach 时 abort 连接并跳过 done/error 副作用;服务端回合经 `writeSSE().catch(()=>{})` 继续完成写旧会话,消息不丢。\n- abort 用 `streamingWorkspaceId ?? activeWorkspaceId`,与 streaming 标志同步置位,不错杀不漏杀。\n- Map set/delete 成对(finally),4 处引用点全改查表,跨工作区并发互不串流。\n- 新增 8 个测试均真实覆盖声称场景(双工区双向负向断言、非真空断言),无假阳性。\n\n**建议修问题**:\n1. `useAgent.ts:337` openWorkspace 早退不 bump openSeq——在途切换期间点回当前工作区无法作废切换(旧行为遗留,低概率)。\n2. abort 按流归属分支无单测(计划验收标准之一)。\n3. `piService.ts:799` set 在 subscribe/try 之前,subscribe 异常会残留条目(极低概率,加固建议)。\n4. `ChatPane.vue:353/370` approvePlan/rejectPlan 先 dismissGate 再 sendMessage,窗口期批准会丢失批准意图(新行为仍比旧行为安全)。\n5. 双标签页实测、workspace-sessions.json/JSONL header 核对、dev 冒烟未执行(需运行环境),建议验收阶段补做。",
+      "artifact": ".wf-runs\\c4c0c7d6\\04-review-1.md",
+      "sessionFile": "sessions\\857395d8-e02b-4b8c-9b07-5144bbf849cd\\sub\\c4c0c7d6\\2026-08-06T13-44-19-213Z_019fd751-540d-7b05-84f1-03e2df47f224.jsonl",
+      "ts": 1786024156328
+    }
+  ]
+}
