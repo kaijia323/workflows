@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
+import { Lock, Unlock } from '@lucide/vue'
 import type { AgentStore } from '../composables/useAgent'
 import { toolLabel } from '../composables/useAgent'
 
@@ -63,11 +64,29 @@ function fmt(n: number | undefined): string {
           <p class="mt-1 break-all font-mono text-[10px] leading-relaxed text-mute">
             {{ ws.path }}
           </p>
-          <div class="mt-2 flex flex-wrap gap-1.5">
-            <span
-              class="kv"
-              :class="ws.readOnly ? 'text-primary' : 'text-body'"
-            >{{ ws.readOnly ? '只读' : '读写' }}</span>
+          <div class="mt-2 flex flex-wrap items-center gap-1.5">
+            <!-- 权限徽标升级为可点击切换按钮(作用于激活工作区);样式保持 kv 胶囊,图标提示可交互 -->
+            <button
+              type="button"
+              class="flex cursor-pointer items-center gap-1 rounded-full border px-2 py-px font-mono text-[10px] tracking-wider transition-colors duration-200"
+              :class="
+                ws.readOnly
+                  ? 'border-primary/40 text-primary hover:border-primary hover:text-primary'
+                  : 'border-hairline text-body hover:border-primary hover:text-primary'
+              "
+              :title="ws.readOnly ? '切换为读写' : '切换为只读'"
+              @click="agent.toggleReadOnly(ws.id, !ws.readOnly)"
+            >
+              <Lock
+                v-if="ws.readOnly"
+                class="size-3"
+              />
+              <Unlock
+                v-else
+                class="size-3"
+              />
+              {{ ws.readOnly ? '只读' : '读写' }}
+            </button>
             <span class="kv text-body">{{ ws.createdAt ? new Date(ws.createdAt).toLocaleDateString() : '—' }}</span>
           </div>
         </template>

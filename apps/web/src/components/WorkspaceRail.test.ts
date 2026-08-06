@@ -6,7 +6,6 @@ import WorkspaceRail from './WorkspaceRail.vue'
 
 function mountRail(agent?: Partial<AgentStore>, options: { attachTo?: boolean; open?: boolean } = {}) {
   const removeWorkspace = vi.fn(async () => {})
-  const toggleReadOnly = vi.fn(async () => {})
   const openWorkspace = vi.fn(async () => {})
   const workspaces = ref([
     { id: 'ws-1', path: 'C:\\ws\\alpha', name: 'alpha', readOnly: false, createdAt: 1785739800000 },
@@ -16,7 +15,6 @@ function mountRail(agent?: Partial<AgentStore>, options: { attachTo?: boolean; o
     workspaces,
     activeWorkspaceId: ref('ws-1'),
     removeWorkspace,
-    toggleReadOnly,
     openWorkspace,
     ...agent,
   } as unknown as AgentStore
@@ -24,49 +22,37 @@ function mountRail(agent?: Partial<AgentStore>, options: { attachTo?: boolean; o
     props: { agent: store, open: options.open ?? false },
     attachTo: options.attachTo ? document.body : undefined,
   })
-  return { wrapper, removeWorkspace, toggleReadOnly, openWorkspace }
+  return { wrapper, removeWorkspace, openWorkspace }
 }
 
 afterEach(() => {
   vi.restoreAllMocks()
 })
 
-describe('WorkspaceRail 动作行', () => {
-  it('「只读/读写」「移除」按钮常显(不依赖 hover,无 hidden 类),每行各一对', () => {
+describe('WorkspaceRail 工作区卡片', () => {
+  it('每张卡片右上角各有一个「移除」图标按钮,常显(不依赖 hover),带 title/aria-label', () => {
     const { wrapper } = mountRail()
-    const toggleButtons = wrapper.findAll('button').filter((b) => b.text() === '只读' || b.text() === '读写')
-    const removeButtons = wrapper.findAll('button').filter((b) => b.text() === '移除')
+    const removeButtons = wrapper
+      .findAll('button')
+      .filter((b) => b.attributes('aria-label')?.startsWith('移除工作区 '))
 
-    expect(toggleButtons).toHaveLength(2)
     expect(removeButtons).toHaveLength(2)
-    for (const btn of [...toggleButtons, ...removeButtons]) {
+    for (const btn of removeButtons) {
+      expect(btn.attributes('title')).toBe('移除')
       expect(btn.classes()).not.toContain('hidden')
       expect(btn.classes()).not.toContain('group-hover:flex')
+      expect(btn.text()).toBe('') // icon-only(Trash2)
     }
-  })
-
-  it('读写/只读按钮文案与 readOnly 状态对应,点击调用 toggleReadOnly', async () => {
-    const { wrapper, toggleReadOnly } = mountRail()
-    const buttons = wrapper.findAll('button')
-
-    // ws-1 readOnly=false → 按钮文案「只读」(点击后切换为只读)
-    const toReadOnly = buttons.find((b) => b.text() === '只读')
-    expect(toReadOnly?.attributes('title')).toBe('切换为只读')
-    await toReadOnly?.trigger('click')
-    expect(toggleReadOnly).toHaveBeenCalledWith('ws-1', true)
-
-    // ws-2 readOnly=true → 按钮文案「读写」(点击后切换为读写)
-    const toReadWrite = buttons.find((b) => b.text() === '读写')
-    expect(toReadWrite?.attributes('title')).toBe('切换为读写')
-    await toReadWrite?.trigger('click')
-    expect(toggleReadOnly).toHaveBeenCalledWith('ws-2', false)
   })
 
   it('点击「移除」先弹确认:确认后调用 removeWorkspace', async () => {
     vi.spyOn(window, 'confirm').mockReturnValue(true)
     const { wrapper, removeWorkspace } = mountRail()
 
-    await wrapper.findAll('button').find((b) => b.text() === '移除')?.trigger('click')
+    const removeBtn = wrapper
+      .findAll('button')
+      .find((b) => b.attributes('aria-label') === '移除工作区 alpha')!
+    await removeBtn.trigger('click')
     await vi.waitFor(() => expect(removeWorkspace).toHaveBeenCalledWith('ws-1'))
   })
 
@@ -74,7 +60,10 @@ describe('WorkspaceRail 动作行', () => {
     vi.spyOn(window, 'confirm').mockReturnValue(false)
     const { wrapper, removeWorkspace } = mountRail()
 
-    await wrapper.findAll('button').find((b) => b.text() === '移除')?.trigger('click')
+    await wrapper
+      .findAll('button')
+      .find((b) => b.attributes('aria-label') === '移除工作区 alpha')
+      ?.trigger('click')
     await Promise.resolve()
     expect(removeWorkspace).not.toHaveBeenCalled()
   })
@@ -89,9 +78,11 @@ describe('WorkspaceRail 动作行', () => {
     expect(openWorkspace).toHaveBeenCalledWith('ws-1')
   })
 
-  it('动作按钮可聚焦(键盘可达)', () => {
+  it('移除按钮可聚焦(键盘可达)', () => {
     const { wrapper } = mountRail(undefined, { attachTo: true })
-    const removeBtn = wrapper.findAll('button').find((b) => b.text() === '移除')!
+    const removeBtn = wrapper
+      .findAll('button')
+      .find((b) => b.attributes('aria-label') === '移除工作区 alpha')!
     ;(removeBtn.element as HTMLElement).focus()
     expect(document.activeElement).toBe(removeBtn.element)
     wrapper.unmount()

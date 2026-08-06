@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { nextTick, ref, watch } from 'vue'
-import { Plus } from '@lucide/vue'
+import { Plus, Trash2 } from '@lucide/vue'
 import type { AgentStore } from '../composables/useAgent'
 
 /**
@@ -72,7 +72,7 @@ function formatDate(ts: number): string {
         <!-- 选中按钮:点击切换激活工作区 -->
         <button
           type="button"
-          class="group block w-full rounded-sm border-l-2 px-3 py-2.5 text-left transition-colors duration-200"
+          class="group block w-full rounded-sm border-l-2 px-3 py-2.5 pr-9 text-left transition-colors duration-200"
           :class="
             ws.id === agent.activeWorkspaceId.value
               ? 'border-l-primary bg-canvas-soft'
@@ -80,18 +80,13 @@ function formatDate(ts: number): string {
           "
           @click="emit('selectWorkspace'); agent.openWorkspace(ws.id)"
         >
-          <div class="flex items-center justify-between gap-2">
+          <!-- 原 RO/RW 徽标已移除:名称行占满,pr-9 为右上角移除按钮预留空间防重叠 -->
+          <div class="flex items-center gap-2">
             <span
               class="truncate text-[13px] font-medium"
               :class="ws.id === agent.activeWorkspaceId.value ? 'text-ink' : 'text-body group-hover:text-ink'"
             >
               {{ ws.name }}
-            </span>
-            <span
-              class="shrink-0 rounded-full border px-2 py-px font-mono text-[10px]"
-              :class="ws.readOnly ? 'border-primary/40 text-primary' : 'border-hairline text-mute'"
-            >
-              {{ ws.readOnly ? 'RO' : 'RW' }}
             </span>
           </div>
           <p
@@ -105,25 +100,17 @@ function formatDate(ts: number): string {
           </p>
         </button>
 
-        <!-- 常显动作行(不依赖 hover,键盘可达):读写/只读切换 + 移除(带确认) -->
-        <div class="mt-1.5 flex gap-1 px-3 pb-1">
-          <button
-            type="button"
-            class="border border-hairline bg-canvas px-1.5 py-0.5 font-mono text-[10px] text-body hover:border-primary/50 hover:text-primary"
-            :title="ws.readOnly ? '切换为读写' : '切换为只读'"
-            @click="agent.toggleReadOnly(ws.id, !ws.readOnly)"
-          >
-            {{ ws.readOnly ? '读写' : '只读' }}
-          </button>
-          <button
-            type="button"
-            class="border border-hairline bg-canvas px-1.5 py-0.5 font-mono text-[10px] text-body hover:border-err/50 hover:text-err"
-            title="移除"
-            @click="handleRemove(ws.id)"
-          >
-            移除
-          </button>
-        </div>
+        <!-- 移除(带确认):卡片整体是 button 不能嵌套,故绝对定位在卡片右上角(原 RO/RW 徽标位);选中态融入卡片 bg-canvas-soft -->
+        <button
+          type="button"
+          class="absolute right-2 top-2 rounded-sm p-1 text-mute transition-colors duration-200 hover:text-err"
+          :class="ws.id === agent.activeWorkspaceId.value ? 'bg-canvas-soft' : ''"
+          title="移除"
+          :aria-label="`移除工作区 ${ws.name}`"
+          @click="handleRemove(ws.id)"
+        >
+          <Trash2 class="size-3.5" />
+        </button>
       </div>
     </div>
 
