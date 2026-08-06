@@ -1,13 +1,13 @@
 {
   "runId": "c4c0c7d6",
   "sessionId": "01576cca-eea5-4866-937b-824906620fcc",
-  "status": "executing",
+  "status": "done",
   "gate": {
     "pending": false,
-    "planFile": ".wf-runs\\c4c0c7d6\\02-plan-1.md"
+    "planFile": null
   },
   "createdAt": 1786022536722,
-  "updatedAt": 1786024168929,
+  "updatedAt": 1786024449084,
   "agents": [
     {
       "callId": "call_00_qUfF68pNFz9G42txXm006664",
@@ -40,6 +40,14 @@
       "artifact": ".wf-runs\\c4c0c7d6\\04-review-1.md",
       "sessionFile": "sessions\\857395d8-e02b-4b8c-9b07-5144bbf849cd\\sub\\c4c0c7d6\\2026-08-06T13-44-19-213Z_019fd751-540d-7b05-84f1-03e2df47f224.jsonl",
       "ts": 1786024156328
+    },
+    {
+      "callId": "call_00_uymiKDNVEz3f9A4OE53X9781",
+      "agent": "executor",
+      "summary": "完成。工作树干净,三个 commit 已提交。\n\n## 执行摘要\n\n**3 项加固全部完成,全量测试与类型检查全绿。**\n\n### 改动点\n1. **`apps/web/src/composables/useAgent.ts`**(审查问题 1):`openWorkspace` 早退分支(`activeWorkspaceId === id`)改为 `openSeq++` + 清 `switchingWorkspaceId`——在途 open(A) 期间点回当前工作区,晚到响应因 seq 不匹配被丢弃,「最后点击者」语义成立。\n2. **`apps/api/src/pi/piService.ts`**(审查问题 2):`activeEmitters.set(workspace.id, onEvent)` 从 subscribe 之前移到 subscribe 之后、try 之内,subscribe 抛异常时不留 Map 残留,与 finally 的 delete 严格成对。\n3. **新增 3 个单测**:\n   - `useAgent.test.ts`:abort 按流归属——流式期间切走再停止,断言 POST 目标为流所属工作区 ws-1 而非当前激活 ws-2;fetch mock 将 signal 真实接线到流(AbortError 断开),完整走通客户端断开路径(审查问题 2 测试缺口)。\n   - `useAgent.test.ts`:在途切换期间点回当前工作区 → 晚到 /open 响应作废、视图不跳走、窗口期标志清位(问题 1 回归测试)。\n   - `piService.test.ts`:subscribe 抛异常 → `activeEmitters.size === 0`(问题 2 回归测试)。\n\n### 自检结果\n- 定向测试:web 10 文件/107 用例、api 18 文件/375 用例,全绿\n- `pnpm test`(turbo):3 tasks 全部成功\n- `pnpm typecheck`(turbo):3 tasks 全部成功(vue-tsc / tsc --noEmit)\n- husky + lint-staged 提交钩子通过\n\n### 提交(3 个)\n- `de088a1` fix(web): 点回当前工作区作废在途切换 + abort 按流归属单测\n- `e6ae362` fix(api): activeEmitters.set 移至 subscribe 后,防残留\n- `cfdedcd` chore: 提交工作流运行记录 .wf-runs\n\n执行报告已写入 `.wf-runs/c4c0c7d6/03-execution-2.md`。未处理项:ChatPane 批准时序(设计取舍保留)、双标签页实测/JSONL 落点(人工验收)。",
+      "artifact": ".wf-runs\\c4c0c7d6\\03-execution-2.md",
+      "sessionFile": "sessions\\857395d8-e02b-4b8c-9b07-5144bbf849cd\\sub\\c4c0c7d6\\2026-08-06T13-49-28-933Z_019fd756-0de5-7016-9007-3dbb26d73e13.jsonl",
+      "ts": 1786024440769
     }
   ]
 }
