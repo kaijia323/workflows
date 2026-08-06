@@ -1,0 +1,21 @@
+{
+  "runId": "4b819dcc",
+  "sessionId": "22f307f7-4da9-4794-a106-dabb1c6a8f2c",
+  "status": "done",
+  "gate": {
+    "pending": false,
+    "planFile": null
+  },
+  "createdAt": 1786033396610,
+  "updatedAt": 1786033675413,
+  "agents": [
+    {
+      "callId": "call_00_T9hNzVKA2wWTAUUmmCWs6554",
+      "agent": "planner",
+      "summary": "(子代理未产出文本摘要)",
+      "artifact": null,
+      "sessionFile": "sessions\\857395d8-e02b-4b8c-9b07-5144bbf849cd\\sub\\4b819dcc\\2026-08-06T16-23-16-615Z_019fd7e2-db87-7332-9a0a-2af09e040a9e.jsonl",
+      "ts": 1786033524997
+    }
+  ]
+}

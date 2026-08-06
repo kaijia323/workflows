@@ -1,0 +1,45 @@
+{
+  "runId": "89fdd581",
+  "sessionId": "22f307f7-4da9-4794-a106-dabb1c6a8f2c",
+  "status": "done",
+  "gate": {
+    "pending": false,
+    "planFile": null
+  },
+  "createdAt": 1786031377275,
+  "updatedAt": 1786033368144,
+  "agents": [
+    {
+      "callId": "call_00_afFaOKmacRtrrxPJdT3p9459",
+      "agent": "explorer",
+      "summary": "调研完成,报告已写入 `.wf-runs/89fdd581/01-exploration-1.md`。摘要:\n\n**仓库形态**:pnpm + Turborepo monorepo(3 包:apps/api = Hono + pi SDK;apps/web = Vue 3 + Vite;packages/shared = 共享类型),ESM + tsc 构建,`engines.node >=20.19.0`,根包 `workflows@0.0.0` private。\n\n**启动方式**:api 入口 `apps/api/src/index.ts`(`@hono/node-server` serve,`PORT` env 可覆盖:生产 5200 / 开发 3000);dev 时 web(Vite 15200,`/api` 代理 3000)+ api 并行;生产单端口 5200 托管前端 + API。`NODE_ENV` 同时决定存储根(dev → `<repo>/.workflows`,prod → `~/.workflows`)。\n\n**CLI 现状:完全空白**——4 个 package.json 均无 `bin` 字段,无 wf 命令,无 commander/yargs 等 CLI 框架;唯一 process.argv 用法在 `scripts/verify-vision.mjs` / `mock-xiaomi-server.mjs` 的手写 parseArgs/parsePort(可复用模式)。\n\n**可复用资产**:`PiAgentService`(piService.ts,约 1000 行)与 config.ts 存储函数与 HTTP 解耦,CLI 可直接调用(prompt 已支持流式回调);端口 PORT env、优雅退出 dispose 逻辑可直接沿用。\n\n**主要风险点**:① agents .md 依赖 `copy-agents.mjs` 复制进 dist(tsc 不处理,缺失则启动即抛错);② workspace 依赖 `@workflows/shared`;③ NODE_ENV 双重语义需在 CLI 下明确;④ MCP 子进程/fff 索引需 dispose 清理。\n\n**结论**:可行性高,CLI 打包主要是新增入口 + bin 字段,无历史包袱。",
+      "artifact": ".wf-runs\\89fdd581\\01-exploration-1.md",
+      "sessionFile": "sessions\\857395d8-e02b-4b8c-9b07-5144bbf849cd\\sub\\89fdd581\\2026-08-06T15-49-37-282Z_019fd7c4-0b82-7afa-b833-02c829ae7db1.jsonl",
+      "ts": 1786031462265
+    },
+    {
+      "callId": "call_00_H8q3uA9Sg6UNgS2bCKJ52082",
+      "agent": "planner",
+      "summary": "实施计划已写入 `.wf-runs/89fdd581/02-plan-1.md`。摘要如下:\n\n## 计划摘要\n\n**核心决策**\n- **CLI 框架**:用 Node 内置 `util.parseArgs`,不引入 commander(仓库零 CLI 依赖、命令面小;解析逻辑抽成纯函数 `cliArgs.ts`,未来可低成本迁移)\n- **入口**:`apps/api/src/cli.ts`(bin → `dist/cli.js`),不新建独立包\n- **upgrade**:本地 monorepo 场景 = `git pull --ff-only` + `pnpm install` + `pnpm build`(干净工作区才执行,`--force` 可越过)\n- **NODE_ENV**:`wf start` 无条件设 production(`~/.workflows`,端口默认 5200);`--dev` 切 development(`<repo>/.workflows`,默认 3000);端口优先级 `--port` > `PORT` env > 默认\n- **bin 双注册**:`apps/api/package.json`(主,支持 pnpm link 全局)+ 根 `package.json`(仓库内 `pnpm exec wf`)\n\n**6 个步骤**\n1. 提取 `startServer.ts`(startServer + installShutdownHandlers,自 index.ts 原样搬迁);`app.ts` 的 `initAgentRoutes()` 改返回 `{pi, store}`(已确认仅 index.ts 调用);index.ts 瘦身为薄壳\n2. `cliArgs.ts` 纯函数 + `cliArgs.test.ts` 单测(端口校验/默认值/优先级/错误路径)\n3. `cli.ts` 入口:help/version/start/upgrade 四命令,shebang、启动兜底校验 agents .md、完整 HELP_TEXT 文本\n4. bin 字段 + 构建链路确认(build 脚本已含 copy-agents,零改动)\n5. README(CLI 小节:安装/命令/存储根语义/upgrade 说明)+ AGENTS.md\n6. 验证:typecheck/test/build + `HOME=$(mktemp -d)` 隔离冒烟(端口、存储根、/api/health、优雅退出、非法参数、upgrade 干跑)\n\n**风险与回滚**:`initAgentRoutes` 返回类型变更(编译期兜底,git revert 即可);NODE_ENV 覆盖(与既有 `pnpm start` 一致,冒烟用临时 HOME 隔离);upgrade 破坏性(干净工作区 + --ff-only + 失败即停,git reflog 兜底)。\n\n**验收**:13 条可逐项勾选的清单(A1–A13),覆盖构建产物、bin 可用性、端口优先级、存储根落点、优雅退出、回归 `pnpm start`。",
+      "artifact": ".wf-runs\\89fdd581\\02-plan-1.md",
+      "sessionFile": "sessions\\857395d8-e02b-4b8c-9b07-5144bbf849cd\\sub\\89fdd581\\2026-08-06T15-51-11-552Z_019fd7c5-7bc0-74c5-b6d7-37ce1d70d355.jsonl",
+      "ts": 1786031648219
+    },
+    {
+      "callId": "call_00_W1kjXzIiaOyf9BY9ELv54079",
+      "agent": "planner",
+      "summary": "已写入 `.wf-runs/89fdd581/02-plan-2.md`(修订版 ncc 实施计划)。摘要:\n\n## 十个问题的核心决策\n\n1. **构建链路**:新增 `apps/api/scripts/build-cli.mjs` + `build:cli` 脚本(ncc 程序化 API,`src/cli.ts` → `dist/cli/index.js` 单文件 + agents 复制);**tsc build 保留**——`pnpm start` 回归基线、web 托管、upgrade 内 `pnpm build` 都依赖它;ncc 产物即 CLI 发布物,两者并存。\n2. **@workflows/shared**:当前是纯类型包(`import type` 被擦除,不进 bundle);未来有运行时导出也可经 pnpm symlink→realpath 内联;唯一要求 shared 先 build,由 build-cli.mjs 前置校验(报「请先 pnpm build」)。\n3. **agents .md**:选「构建时复制旁路目录」(`dist/cli/agents`)。理由:agentDefs.ts 的 `BUILTIN_AGENTS_DIR` 是运行时拼接路径,asset-relocator/--asset-builds 不可靠;该方案下 **agentDefs.ts 零改动**,bundle 内天然解析到 `dist/cli/agents`,cli.ts 预检改用它。\n4. **运行时路径**:新增 `src/paths.ts` 的 `findRepoRoot()`(向上找 `pnpm-workspace.yaml`),统一 src/dist/dist/cli 三种布局;`workflowsRoot()` dev 分支与 `webDist` 收敛到它;`agentDefs.ts` 不动。\n5. **bin**:ncc 保留 shebang,`dist/cli/index.js` 直接作 bin 目标;双注册仍保留(根 bin 供 `pnpm exec wf`,api bin 供 pnpm link)。\n6. **版本参数**:`@vercel/ncc@^0.38.4`(npm latest);`--target es2022` + `--source-map`,不开 `--minify`,`cache: false`,`filterAssetBase` 限仓库内。\n7. **单测**:不受影响(vitest 直跑 src);新增 cliArgs.test.ts + paths.test.ts。\n8. **验证**:冒烟改 `node apps/api/dist/cli/index.js help/version/start --dev`,并校验 shebang、agents 旁路、ESM package.json。\n9. **权衡**:ncc 胜在单入口/依赖自包含/bin 极简/启动快;败在构建慢、产物 10–40MB(pi-ai 全家桶)、调试靠 sourcemap、**native 链无法内联**。结论:适合本项目(仓库内一体化 CLI),且 tsc 保留为逃生舱。\n10. **坑(已实证)**:ncc 对 `type: module` 包自动输出 ESM(无需 .cjs 改名,翻车则 CJS 兜底);pnpm symlink 默认可解;`.js` 后缀导入/JSON attributes/TLA 列为 spike 检查点;`fff-node`(ffi-rs + 平台 dll)为运行时动态解析的 native 链,仓库内运行 OK、FffIndexManager 惰性创建不阻塞启动,失败可 `--external`。\n\n## 执行要点\n\n- **新增步骤 1:spike 门禁**——先用 `ncc build src/app.ts`(完整依赖图)验证可打包可运行,Go/No-Go 判定,No-Go 回滚到 esbuild 或 02-plan-1(tsc)。\n- 后续步骤:paths.ts 收敛 → startServer 提取 → cliArgs+单测 → cli.ts(预检 BUILTIN_AGENTS_DIR、version 走 readApiVersion、upgrade 末尾追加 build:cli 自重建)→ build-cli.mjs+ncc 参数 → bin 双注册 → 文档。\n- 风险表 9 项(R1–R9)每项带缓解与回滚点;验收 A1–A15 含 ncc 特有项(ESM 产物形态、agents 旁路、fff 探针)。",
+      "artifact": ".wf-runs\\89fdd581\\02-plan-2.md",
+      "sessionFile": "sessions\\857395d8-e02b-4b8c-9b07-5144bbf849cd\\sub\\89fdd581\\2026-08-06T16-00-12-847Z_019fd7cd-be2f-7d88-ac20-132d2ddaeb85.jsonl",
+      "ts": 1786032358085
+    },
+    {
+      "callId": "call_00_ah8TIe6B7dZKOiGL1gui9982",
+      "agent": "planner",
+      "summary": "实施计划已写入 `.wf-runs/89fdd581/02-plan-3.md`。摘要如下:\n\n## 计划摘要(全局发布版)\n\n**调研新增实证**(本版独有):① npm 公共 registry 上 `workflows` 包名已被 deprecated 占位包占用(v1.0.1,10 年前,0 dependents)→ **GATE-0 硬门槛**;② fff-node 运行时靠 createRequire 向上找自身包名定位 dll → **ncc 必须 externals `@ff-labs/fff-node` 并声明为 dependencies**,否则全局安装后 fff 静默失效;③ ffi-rs 无 install 脚本(pnpm 10 拦截不影响);④ pi-coding-agent 要求 node >=22.19 → 发布包 engines 对齐;⑤ pnpm 官方支持 workspace 重名。\n\n**十个问题决策**:\n1. **发布形态 = 新建独立包 `packages/cli`**(name=workflows);否决根包(工具链耦合、husky pack 副作用)与 apps/api 改名(需改 filter 引用)\n2. **files: [\"dist\"]** 白名单;web 由 prepack 复制进 `dist/web`(npm pack 只能打包内路径)\n3. **prepack = `pnpm -w build && pnpm build:cli`**,pack 与 publish 同链路,杜绝过期产物\n4. **`findPkgRoot()`(name 标记)替代 findRepoRoot**,单一标记覆盖 tsx/tsc/仓库 bundle/全局安装四布局;`resolveWebDist()` 候选列表;`~/.workflows` 生产存储根保留\n5. **packages/cli 单 bin 注册**;根 bin 仅仓库 dev 便利(同文件)\n6. **upgrade 改为 registry 自更新**:安装器探测(--pm > env > user_agent > PATH)、`--registry` 一致驱动、fetch 探测最新版、EACCES/EPERM 时打印手动命令(含 sudo/Windows 说明)\n7. 手动 `pnpm version` + git tag;**私有 registry 先行**(包名被占),公共 npm 待转让后一行切换\n8. `wf start` 默认 production(~/.workflows + 5200)保留;`--dev` 存储根改 **~/.workflows-dev**(WF_DATA_ROOT 机制)\n9. Windows:shim 由 npm/pnpm 生成不依赖 shebang;externals 方案下 dll 在全局 node_modules 内可解析\n10. 验收核心:`pnpm pack`(触发 prepack)→ `pnpm i -g <tarball>` → 隔离 HOME 冒烟(health + **前端页面可打开**)→ fff 全局实测 → 卸载\n\n**步骤 0–8**:两门禁(包名决策 + 重名安装验证)→ spike(externals 终稿)→ paths.ts → startServer → cliArgs → cli.ts/upgrade.ts → packages/cli + build-cli.mjs → 文档 → 发布演练。每步独立 commit 可回滚。\n\n**特有风险**:包名占用(GATE-0)、externals 漏配致 fff 降级、包体积 30–80MB、双布局 web 路径、upgrade 权限、prepack 自足性;均列缓解与回滚点。",
+      "artifact": ".wf-runs\\89fdd581\\02-plan-3.md",
+      "sessionFile": "sessions\\857395d8-e02b-4b8c-9b07-5144bbf849cd\\sub\\89fdd581\\2026-08-06T16-08-21-593Z_019fd7d5-3359-74d6-9bc2-2e191d760307.jsonl",
+      "ts": 1786033266475
+    }
+  ]
+}
