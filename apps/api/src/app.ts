@@ -11,12 +11,15 @@ import { registerAgentRoutes } from './agent/routes.js'
 import { PiAgentService } from './pi/piService.js'
 
 // 前端构建产物目录(生产环境由本服务托管,前后端同源)
-// 仓库内:src/ 与 dist/ 下均命中 apps/web/dist;CLI 包内层级变化,命中包内 dist/web-dist。
+// 回退链(按 moduleDir 解析):
+//   1. ../../web/dist  仓库内:moduleDir=apps/api/dist 或 apps/api/src 时命中 apps/web/dist
+//   2. ../web-dist     CLI 全局安装:moduleDir=<包>/dist/api,命中包内 dist/web-dist
+//   3. web-dist        向后兼容:moduleDir 恰为 dist/ 时命中 dist/web-dist
 // 环境变量 WF_WEB_DIST 可显式指定(测试/特殊部署用)。
 const moduleDir = path.dirname(fileURLToPath(import.meta.url))
 function resolveWebDist(): string {
   if (process.env.WF_WEB_DIST) return process.env.WF_WEB_DIST
-  for (const rel of ['../../web/dist', 'web-dist']) {
+  for (const rel of ['../../web/dist', '../web-dist', 'web-dist']) {
     const p = path.resolve(moduleDir, rel)
     if (existsSync(p)) return p
   }
