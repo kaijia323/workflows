@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * workflows CLI(`wf`)入口。
+ * workflows CLI(`wfs`)入口。
  *
  * 零 CLI 依赖:仅用 Node 内置 util.parseArgs 完成 flag 解析与子命令分派。
  * - 顶层 flag:--help/-h、--version/-V
@@ -10,7 +10,7 @@ import { spawn } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { parseArgs } from 'node:util'
 
-const HELP = `用法:wf <command> [options]
+const HELP = `用法:wfs <command> [options]
 
 命令:
   start [options]      启动 workflows 服务(默认端口 5200)
@@ -64,7 +64,7 @@ async function runStart(args: string[]): Promise<void> {
   const port = resolvePort(values.port)
   // 关键顺序:先设 NODE_ENV 再动态 import(config.ts 的 workflowsRoot 依此决定存储根)
   process.env.NODE_ENV = values.dev ? 'development' : 'production'
-  console.log(`[wf] 启动 workflows · http://localhost:${port}(${process.env.NODE_ENV} 模式,Ctrl-C 退出)`)
+  console.log(`[wfs] 启动 workflows · http://localhost:${port}(${process.env.NODE_ENV} 模式,Ctrl-C 退出)`)
   const { startServer } = await import('./api/index.js')
   await startServer(port)
 }
@@ -102,7 +102,7 @@ async function runUpgrade(args: string[]): Promise<void> {
     console.log(`升级命令:${command}`)
     return
   }
-  console.log(`[wf] 通过 ${installer} 升级 @kaijia/workflows 至最新版...`)
+  console.log(`[wfs] 通过 ${installer} 升级 @kaijia/workflows 至最新版...`)
   try {
     await new Promise<void>((resolve, reject) => {
       const child = spawn(command, { shell: true, stdio: 'inherit' })
@@ -112,9 +112,9 @@ async function runUpgrade(args: string[]): Promise<void> {
         else reject(new Error(`命令退出码 ${code ?? '未知'}`))
       })
     })
-    console.log('[wf] 升级完成')
+    console.log('[wfs] 升级完成')
   } catch (error) {
-    console.error(`[wf] 升级失败:${error instanceof Error ? error.message : String(error)}`)
+    console.error(`[wfs] 升级失败:${error instanceof Error ? error.message : String(error)}`)
     console.error(`请手动执行:${command}`)
     process.exit(1)
   }
@@ -124,14 +124,14 @@ async function main(): Promise<void> {
   const argv = process.argv.slice(2)
 
   // 子命令优先分派:start/upgrade 的选项(--port/--dev/--dry-run)只属于子命令,
-  // 顶层 parseArgs(strict 模式)不解析它们,避免 `wf start --port 5201` 被误报未知 flag
+  // 顶层 parseArgs(strict 模式)不解析它们,避免 `wfs start --port 5201` 被误报未知 flag
   const first = argv[0]
   if (first === 'start' || first === 'upgrade') {
     try {
       await (first === 'start' ? runStart(argv.slice(1)) : runUpgrade(argv.slice(1)))
     } catch (error) {
-      console.error(`wf ${first}:${error instanceof Error ? error.message : String(error)}`)
-      console.error('运行 wf --help 查看用法')
+      console.error(`wfs ${first}:${error instanceof Error ? error.message : String(error)}`)
+      console.error('运行 wfs --help 查看用法')
       process.exit(1)
     }
     return
@@ -150,8 +150,8 @@ async function main(): Promise<void> {
       allowPositionals: true,
     }))
   } catch (error) {
-    console.error(`wf:${error instanceof Error ? error.message : String(error)}`)
-    console.error('运行 wf --help 查看用法')
+    console.error(`wfs:${error instanceof Error ? error.message : String(error)}`)
+    console.error('运行 wfs --help 查看用法')
     process.exit(1)
   }
 
@@ -163,12 +163,12 @@ async function main(): Promise<void> {
     console.log(HELP)
     return
   }
-  console.error(`wf:未知命令「${positionals[0]}」`)
-  console.error('运行 wf --help 查看用法')
+  console.error(`wfs:未知命令「${positionals[0]}」`)
+  console.error('运行 wfs --help 查看用法')
   process.exit(1)
 }
 
 await main().catch((error) => {
-  console.error(`wf:${error instanceof Error ? error.message : String(error)}`)
+  console.error(`wfs:${error instanceof Error ? error.message : String(error)}`)
   process.exit(1)
 })

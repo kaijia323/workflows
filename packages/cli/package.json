@@ -1,10 +1,10 @@
 {
   "name": "@kaijia/workflows",
-  "version": "0.1.0",
-  "description": "workflows Web Agent 工作台 CLI(wf 命令):tsc 编译 + npm 发布的自包含 npm 包",
+  "version": "0.2.0",
+  "description": "workflows Web Agent 工作台 CLI(wfs 命令):tsc 编译 + npm 发布的自包含 npm 包",
   "type": "module",
   "bin": {
-    "wf": "./dist/cli.js"
+    "wfs": "./dist/cli.js"
   },
   "files": [
     "dist"
