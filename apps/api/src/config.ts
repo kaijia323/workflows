@@ -345,11 +345,11 @@ export function mutateSessions(
   return state
 }
 
-/** 工作区会话列表(按创建时间升序) */
+/** 工作区会话列表(按创建时间降序,最新在前) */
 export function listSessions(store: WorkflowsStore, workspaceId: string): StoredSessionMeta[] {
   const state = loadSessionsFile(store)[workspaceId]
   if (!state) return []
-  return Object.values(state.sessions).sort((a, b) => a.createdAt - b.createdAt)
+  return Object.values(state.sessions).sort((a, b) => b.createdAt - a.createdAt)
 }
 
 /** 当前激活会话 */
