@@ -1,13 +1,13 @@
 {
   "runId": "6ba25936",
   "sessionId": "b194ede5-cb5e-4621-8330-4a4c1966dc06",
-  "status": "planning",
+  "status": "done",
   "gate": {
     "pending": false,
     "planFile": null
   },
   "createdAt": 1786030842010,
-  "updatedAt": 1786031189177,
+  "updatedAt": 1786031252001,
   "agents": [
     {
       "callId": "call_00_6yU98AxclaPCTlfyYfN64531",
