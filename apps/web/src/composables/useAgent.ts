@@ -171,6 +171,12 @@ export function useAgent() {
   // 当前流式 assistant 消息(增量累积)
   let pending: UiMessage | null = null
   let abortController: AbortController | null = null
+  /** openWorkspace 在途目标工作区(点击即置位,await /open 返回后清位;发送门禁 + 组件提示用) */
+  const switchingWorkspaceId = ref<string | null>(null)
+  /** openWorkspace 自增序号:快速连点工作区时丢弃晚到的旧响应(乱序防护) */
+  let openSeq = 0
+  /** 当前 SSE 流所属工作区(启动流时快照;abort 与事件归属校验用) */
+  let streamingWorkspaceId: string | null = null
 
   const activeWorkspace = computed(() => workspaces.value.find((w) => w.id === activeWorkspaceId.value) ?? null)
   const hasApiKey = computed(() => config.value?.hasApiKey ?? false)
@@ -329,10 +335,20 @@ export function useAgent() {
   async function openWorkspace(id: string): Promise<void> {
     if (activeWorkspaceId.value === id) return
     if (streaming.value) await abort()
-    const data = await request<SessionData>(`/api/agent/workspaces/${id}/open`, { method: 'POST' })
-    activeWorkspaceId.value = id
-    applySessionData(data)
-    await Promise.all([refreshRun(), refreshSkills()])
+    // 同步置位:切换窗口期从「点击」算起,而非从 /open 返回算起
+    switchingWorkspaceId.value = id
+    const seq = ++openSeq
+    try {
+      const data = await request<SessionData>(`/api/agent/workspaces/${id}/open`, { method: 'POST' })
+      // 乱序防护:期间有更新的 open 请求,丢弃本次晚到结果,避免覆盖最新选择
+      if (seq !== openSeq) return
+      activeWorkspaceId.value = id
+      applySessionData(data)
+      await Promise.all([refreshRun(), refreshSkills()])
+    } finally {
+      // 仅最新一次 open 负责清位(失败也清:用户仍留在旧工作区,可立即重发)
+      if (seq === openSeq) switchingWorkspaceId.value = null
+    }
   }
 
   /** 新建会话:旧会话 JSONL 全部保留,新会话成为当前 */
@@ -686,19 +702,27 @@ export function useAgent() {
 
   /** 发送消息:POST 后通过 SSE 流式接收 agent 事件 */
   async function sendMessage(text: string, images?: UiMessage['images']): Promise<void> {
-    const workspaceId = activeWorkspaceId.value
-    if (!workspaceId) throw new Error('请先选择工作区')
+    const streamWorkspaceId = activeWorkspaceId.value
+    if (!streamWorkspaceId) throw new Error('请先选择工作区')
+    // 切换窗口期防护:openWorkspace 在途(目标 ≠ 当前工作区)时拒绝发送,
+    // 消息保留在用户草稿(拒绝发生在 pushUserMessage 之前,不产生幻影消息)
+    if (switchingWorkspaceId.value && switchingWorkspaceId.value !== streamWorkspaceId) {
+      throw new Error('正在切换工作区,请稍候再发送')
+    }
     pushUserMessage(text, images)
+    // 流启动即绑定归属:后续 SSE 事件按此快照校验,切走后旧流事件不再渲染进新视图
+    streamingWorkspaceId = streamWorkspaceId
     streaming.value = true
-    abortController = new AbortController()
+    const controller = new AbortController()
+    abortController = controller
     let buffer = ''
 
     try {
-      const res = await fetch(`/api/agent/workspaces/${workspaceId}/prompt`, {
+      const res = await fetch(`/api/agent/workspaces/${streamWorkspaceId}/prompt`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ text }),
-        signal: abortController.signal,
+        signal: controller.signal,
       })
       if (!res.ok || !res.body) {
         const body = (await res.json().catch(() => ({}))) as ApiErrorBody
@@ -712,13 +736,23 @@ export function useAgent() {
         buffer += decoder.decode(value, { stream: true })
         const lines = buffer.split('\n')
         buffer = lines.pop() ?? ''
+        let detached = false
         for (const line of lines) {
           const trimmed = line.trim()
           if (!trimmed.startsWith('data:')) continue
           const payload = trimmed.slice(5).trim()
           if (!payload) continue
+          // 事件归属校验:当前激活工作区 ≠ 流所属工作区 → 断开连接并停止渲染。
+          // 服务端回合继续完成,消息留在旧会话(不丢);done/error 分支的
+          // refreshRun / finalizeSubSessions 副作用一并跳过。
+          if (activeWorkspaceId.value !== streamWorkspaceId) {
+            controller.abort()
+            detached = true
+            break
+          }
           handleEvent(JSON.parse(payload) as SessionEvent)
         }
+        if (detached) break
       }
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') {
@@ -732,6 +766,7 @@ export function useAgent() {
       }
     } finally {
       streaming.value = false
+      streamingWorkspaceId = null
       abortController = null
       // 兜底:流无论以何种方式结束(正常 done / 后端 error / 连接断开 / 中断),
       // 都必须收尾所有流式状态。否则只有工具块(无正文)的消息、子代理模态窗
@@ -747,7 +782,8 @@ export function useAgent() {
 
   async function abort(): Promise<void> {
     abortController?.abort()
-    const workspaceId = activeWorkspaceId.value
+    // 按流所属工作区中止:回合在 W 运行时用户切到 A 再点停止,不应误中止 A
+    const workspaceId = streamingWorkspaceId ?? activeWorkspaceId.value
     if (workspaceId) {
       await request(`/api/agent/workspaces/${workspaceId}/abort`, { method: 'POST' }).catch(() => {})
     }
@@ -772,6 +808,7 @@ export function useAgent() {
     config,
     workspaces,
     activeWorkspaceId,
+    switchingWorkspaceId,
     activeWorkspace,
     sessionList,
     messages,

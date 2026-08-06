@@ -197,6 +197,11 @@ async function handleSend() {
   if ((!text && pendingImages.value.length === 0) || props.agent.streaming.value || !props.agent.activeWorkspaceId.value) {
     return
   }
+  // 切换工作区窗口期:早退提示(在任何上传/发送之前,避免图片先传到旧工作区再被拒,产生孤儿文件)
+  if (props.agent.switchingWorkspaceId.value) {
+    sendError.value = '正在切换工作区,请稍候…'
+    return
+  }
   // 压缩失败项(无上传数据)不可发送:阻止并提示,不能带残缺图片触发误导性 400(P2 修复)
   if (pendingImages.value.some((img) => img.status === 'error' && !img.uploadDataUrl)) {
     sendError.value = '存在压缩失败的图片,请删除后重试'

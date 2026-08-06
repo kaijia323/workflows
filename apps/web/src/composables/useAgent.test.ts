@@ -580,3 +580,163 @@ describe('useAgent 图片上传与发送(uploadImage / sendMessage images)', () 
     expect(agent.messages.value[0].images).toBeUndefined()
   })
 })
+
+describe('useAgent 工作区切换防护(switchingWorkspaceId / openSeq / SSE 归属)', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  /** 可手动控制推送时机的 SSE 流(归属校验用例需要精确的切换时机) */
+  function manualStream(): { stream: ReadableStream<Uint8Array>; push: (chunk: string) => void; close: () => void } {
+    let controller: ReadableStreamDefaultController<Uint8Array>
+    const stream = new ReadableStream<Uint8Array>({
+      start(c) {
+        controller = c
+      },
+    })
+    return {
+      stream,
+      push: (chunk) => controller.enqueue(encoder.encode(chunk)),
+      close: () => controller.close(),
+    }
+  }
+
+  const configBody = { hasApiKey: true, model: 'deepseek-v4-flash', thinkingLevel: 'off', models: [], thinkingLevels: ['off'] }
+  const statusBody = (id: string) => ({
+    workspaceId: id,
+    model: 'deepseek-v4-flash',
+    thinkingLevel: 'off',
+    messageCount: 0,
+    streaming: false,
+    lastActivityAt: null,
+  })
+  const openBody = (id: string, history: unknown[] = []) => ({ history, status: statusBody(id) })
+  const emptyStream = () =>
+    new ReadableStream<Uint8Array>({
+      async start(controller) {
+        controller.close()
+      },
+    })
+
+  it('openWorkspace 在途时 sendMessage 拒绝发送:无幻影用户消息、不发 /prompt(窗口期防护)', async () => {
+    let resolveOpen!: (r: Response) => void
+    const openPromise = new Promise<Response>((resolve) => {
+      resolveOpen = resolve
+    })
+    const promptCalls: string[] = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input)
+        if (url === '/api/agent/config') return jsonResponse(configBody)
+        if (url === '/api/agent/workspaces') {
+          return jsonResponse([
+            { id: 'ws-1', path: '/x', name: 'x', readOnly: false, createdAt: 0 },
+            { id: 'ws-2', path: '/y', name: 'y', readOnly: false, createdAt: 0 },
+          ])
+        }
+        if (url.endsWith('/ws-1/open')) return jsonResponse(openBody('ws-1'))
+        if (url.endsWith('/ws-2/open')) return openPromise
+        if (url.endsWith('/prompt')) {
+          promptCalls.push(url)
+          return { ok: true, body: emptyStream(), json: async () => ({}) } as unknown as Response
+        }
+        return { ok: false, json: async () => ({ code: 404, message: 'Not Found', data: null }) }
+      }),
+    )
+    const agent = useAgent()
+    await agent.init()
+    await agent.openWorkspace('ws-1')
+    expect(agent.activeWorkspaceId.value).toBe('ws-1')
+
+    // 点击 ws-2:/open 挂起,切换窗口期从点击这一刻开始
+    const opening = agent.openWorkspace('ws-2')
+    expect(agent.switchingWorkspaceId.value).toBe('ws-2')
+
+    // 窗口期内发送 → 拒绝;且拒绝发生在 pushUserMessage 之前(无幻影用户消息、无 /prompt 请求)
+    await expect(agent.sendMessage('hi')).rejects.toThrow('正在切换工作区')
+    expect(agent.messages.value).toHaveLength(0)
+    expect(promptCalls).toHaveLength(0)
+
+    resolveOpen(jsonResponse(openBody('ws-2')))
+    await opening
+    expect(agent.activeWorkspaceId.value).toBe('ws-2')
+    expect(agent.switchingWorkspaceId.value).toBeNull()
+  })
+
+  it('流式期间切走工作区:旧流后续 SSE 事件不再渲染进新视图(归属校验 + 断开)', async () => {
+    const { stream, push, close } = manualStream()
+    stubApi(stream)
+    const agent = useAgent()
+    await agent.init()
+    await agent.openWorkspace('ws-1')
+
+    const sending = agent.sendMessage('hi')
+    push('data: {"type":"agent_start"}\n\n')
+    push('data: {"type":"text_delta","delta":"旧"}\n\n')
+    // 等第一段增量渲染完成(此时归属校验点已就位)
+    await vi.waitFor(() => {
+      expect(messageText(agent.messages.value.at(-1)!)).toBe('旧')
+    })
+
+    // 模拟 openWorkspace 完成:视图切到新工作区
+    agent.activeWorkspaceId.value = 'ws-2'
+    // 旧流后续事件(text_delta / agent_end / done)全部不得渲染
+    push('data: {"type":"text_delta","delta":"世界"}\n\n')
+    push('data: {"type":"agent_end"}\n\n')
+    push('data: {"type":"done"}\n\n')
+    close()
+    await sending
+
+    const last = agent.messages.value.at(-1)
+    expect(messageText(last!)).toBe('旧')
+    expect(agent.messages.value.filter((m) => m.role === 'assistant')).toHaveLength(1)
+    // 归属校验放行前的事件正常渲染,切走后的事件被丢弃
+    expect(agent.messages.value.map((m) => messageText(m))).toEqual(['hi', '旧'])
+  })
+
+  it('快速连点工作区:晚到的 /open 响应被丢弃,最终激活最后点击者(openSeq 乱序防护)', async () => {
+    let resolveA!: (r: Response) => void
+    let resolveB!: (r: Response) => void
+    const openA = new Promise<Response>((resolve) => {
+      resolveA = resolve
+    })
+    const openB = new Promise<Response>((resolve) => {
+      resolveB = resolve
+    })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input)
+        if (url === '/api/agent/config') return jsonResponse(configBody)
+        if (url === '/api/agent/workspaces') {
+          return jsonResponse([
+            { id: 'ws-1', path: '/x', name: 'x', readOnly: false, createdAt: 0 },
+            { id: 'ws-2', path: '/y', name: 'y', readOnly: false, createdAt: 0 },
+          ])
+        }
+        if (url.endsWith('/ws-1/open')) return openA
+        if (url.endsWith('/ws-2/open')) return openB
+        return { ok: false, json: async () => ({ code: 404, message: 'Not Found', data: null }) }
+      }),
+    )
+    const agent = useAgent()
+    await agent.init()
+    // 先点 ws-1(挂起),再点 ws-2(挂起);ws-2 先返回
+    const p1 = agent.openWorkspace('ws-1')
+    const p2 = agent.openWorkspace('ws-2')
+    expect(agent.switchingWorkspaceId.value).toBe('ws-2')
+
+    resolveB(jsonResponse(openBody('ws-2', [{ id: 'u1', role: 'user', blocks: [{ type: 'text', text: '来自B' }] }])))
+    await p2
+    expect(agent.activeWorkspaceId.value).toBe('ws-2')
+    expect(agent.messages.value.map((m) => messageText(m))).toEqual(['来自B'])
+
+    // ws-1 的晚到响应被丢弃:不覆盖 activeWorkspaceId、不换历史
+    resolveA(jsonResponse(openBody('ws-1', [{ id: 'u1', role: 'user', blocks: [{ type: 'text', text: '来自A' }] }])))
+    await p1
+    expect(agent.activeWorkspaceId.value).toBe('ws-2')
+    expect(agent.messages.value.map((m) => messageText(m))).toEqual(['来自B'])
+    expect(agent.switchingWorkspaceId.value).toBeNull()
+  })
+})

@@ -42,6 +42,8 @@ interface PaneOptions {
   skills?: SkillInfo[]
   streaming?: boolean
   workspaceId?: string | null
+  /** 切换窗口期(openWorkspace 在途):非空时发送应早退提示 */
+  switchingWorkspaceId?: string | null
   /** 挂载到 document.body(jsdom 仅在元素已连接时 focus() 才生效,用于焦点断言) */
   attachTo?: boolean
   /** 只读工作区(粘贴图片拒绝场景) */
@@ -53,6 +55,7 @@ function mountPane(options: PaneOptions = {}) {
   const messages = ref<never[]>([])
   const streaming = ref(options.streaming ?? false)
   const activeWorkspaceId = ref<string | null>(options.workspaceId === undefined ? 'ws-1' : options.workspaceId)
+  const switchingWorkspaceId = ref<string | null>(options.switchingWorkspaceId ?? null)
   const activeWorkspace = computed(() =>
     activeWorkspaceId.value
       ? { id: activeWorkspaceId.value, path: 'C:\\ws', name: 'ws', readOnly: options.readOnly ?? false, createdAt: 0 }
@@ -65,6 +68,7 @@ function mountPane(options: PaneOptions = {}) {
     messages,
     streaming,
     activeWorkspaceId,
+    switchingWorkspaceId,
     activeWorkspace,
     skills,
     status: ref({ messageCount: 0 }),
@@ -553,6 +557,26 @@ describe('ChatPane / 粘贴图片缩略图(compressorjs 压缩已 mock)', () => 
     expect(sendMessage).toHaveBeenLastCalledWith('[图片: up-1.png] 请分析这张截图', [
       { path: 'up-1.png', thumb: 'blob:mock-thumb' },
     ])
+  })
+
+  it('切换工作区窗口期:早退提示「正在切换工作区」,不触发上传/发送', async () => {
+    const { wrapper, uploadImage, sendMessage } = mountPane({ switchingWorkspaceId: 'ws-2' })
+    paste(wrapper, [imageFile()])
+    await flushPromises()
+    await wrapper.find('textarea').setValue('消息')
+    await flushPromises()
+
+    await wrapper.findAll('button').find((b) => b.text() === '发送')?.trigger('click')
+    await flushPromises()
+
+    // 早退:图片不上传(避免孤儿文件)、消息不发送,仅提示
+    expect(wrapper.text()).toContain('正在切换工作区,请稍候…')
+    expect(uploadImage).not.toHaveBeenCalled()
+    expect(sendMessage).not.toHaveBeenCalled()
+    // 草稿保留
+    expect((wrapper.find('textarea').element as HTMLTextAreaElement).value).toBe('消息')
+    // 待发图片保留(窗口期结束后可重发)
+    expect(wrapper.find('[aria-label="删除图片"]').exists()).toBe(true)
   })
 
   it('只读工作区粘贴:拒绝并提示,无缩略图,不调用压缩', async () => {
