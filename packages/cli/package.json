@@ -1,7 +1,14 @@
 {
   "name": "@kaijia/workflows",
   "version": "0.2.1",
-  "description": "workflows Web Agent 工作台 CLI(wfs 命令):tsc 编译 + npm 发布的自包含 npm 包",
+  "license": "MIT",
+  "description": "workflows — 一键在浏览器中启动的 Web Agent 工作台:工作区管理、持久化会话、SSE 流式对话与流水线式工作流编排(wfs 命令)",
+  "keywords": ["workflow", "agent", "web-agent", "cli", "orchestration", "pipeline", "mcp", "deepseek", "sse", "chat"],
+  "homepage": "https://www.npmjs.com/package/@kaijia/workflows",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kaijia323/workflows.git"
+  },
   "type": "module",
   "bin": {
     "wfs": "./dist/cli.js"
@@ -17,7 +24,7 @@
   },
   "scripts": {
     "build": "node scripts/prepare.mjs && tsc -p tsconfig.json && node scripts/copy-assets.mjs",
-    "prepack": "node scripts/prepare.mjs && tsc -p tsconfig.json && node scripts/copy-assets.mjs",
+    "prepack": "node scripts/prepare.mjs && tsc -p tsconfig.json && node scripts/copy-assets.mjs && node scripts/copy-docs.mjs",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

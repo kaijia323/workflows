@@ -2,3 +2,6 @@
 src/api/
 # 构建产物
 dist/
+# 生成物:根 README.md / LICENSE 由 scripts/copy-docs.mjs 在 prepack 时复制,不提交
+/README.md
+/LICENSE
