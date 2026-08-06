@@ -7,7 +7,7 @@
     "planFile": null
   },
   "createdAt": 1786038935418,
-  "updatedAt": 1786039029022,
+  "updatedAt": 1786039320855,
   "agents": [
     {
       "callId": "call_00_HZSWV9EoCEAQX1WKUScC0346",
@@ -16,6 +16,14 @@
       "artifact": ".wf-runs\\fff99d72\\03-execution-1.md",
       "sessionFile": "sessions\\857395d8-e02b-4b8c-9b07-5144bbf849cd\\sub\\fff99d72\\2026-08-06T17-55-35-425Z_019fd837-5f81-7da7-b0ee-f8408239a7e6.jsonl",
       "ts": 1786039029022
+    },
+    {
+      "callId": "call_00_KKO29iu0lCQ0eMPIj7QP1600",
+      "agent": "executor",
+      "summary": "**执行摘要**\n\n修复完成,报告已写入 `.wf-runs/fff99d72/03-execution-2.md`。\n\n**改动(2 个文件)**\n- `apps/api/src/app.ts`:`resolveWebDist()` 回退链 `['../../web/dist', 'web-dist']` → `['../../web/dist', '../web-dist', 'web-dist']`,注释同步更新(逐条说明三个分支的命中场景)\n- `packages/cli/package.json`:version 0.2.0 → **0.2.1**\n\n**构建与冒烟**\n- `pnpm --filter @kaijia/workflows build` ✅(产物 `dist/api/app.js` 含新回退链,`dist/web-dist/index.html` 就绪,`--version` → 0.2.1)\n- 冒烟(5202 端口,5200 用户进程 PID 30536 未触碰):\n  - `GET /` → **200**,text/html,index.html 内容(`<title>workflows · Agent 控制台</title>`)\n  - `GET /api/health` → **200**,`{\"code\":0,\"message\":\"ok\",\"data\":{\"status\":\"up\",...}}`\n- 命中验证:仓库内 `packages/web/dist` 不存在,响应与包内 `dist/web-dist/index.html` 逐字节一致 → 新增 `../web-dist` 分支生效\n- 清理:仅杀掉自己启动的 5202 进程(PID 26812),5202 已释放,5200 完好\n\n**遗留问题**:无(未执行 npm publish,由用户执行)。",
+      "artifact": ".wf-runs\\fff99d72\\03-execution-2.md",
+      "sessionFile": "sessions\\857395d8-e02b-4b8c-9b07-5144bbf849cd\\sub\\fff99d72\\2026-08-06T18-00-53-739Z_019fd83c-3aeb-7dfe-8ea0-4e2c7cea5a79.jsonl",
+      "ts": 1786039320854
     }
   ]
 }
