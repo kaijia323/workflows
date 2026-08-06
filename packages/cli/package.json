@@ -1,6 +1,6 @@
 {
   "name": "@kaijia/workflows",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "license": "MIT",
   "description": "workflows — 一键在浏览器中启动的 Web Agent 工作台:工作区管理、持久化会话、SSE 流式对话与流水线式工作流编排(wfs 命令)",
   "keywords": ["workflow", "agent", "web-agent", "cli", "orchestration", "pipeline", "mcp", "deepseek", "sse", "chat"],
