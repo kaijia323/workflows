@@ -1,0 +1,29 @@
+{
+  "runId": "6ba25936",
+  "sessionId": "b194ede5-cb5e-4621-8330-4a4c1966dc06",
+  "status": "planning",
+  "gate": {
+    "pending": false,
+    "planFile": null
+  },
+  "createdAt": 1786030842010,
+  "updatedAt": 1786031189177,
+  "agents": [
+    {
+      "callId": "call_00_6yU98AxclaPCTlfyYfN64531",
+      "agent": "explorer",
+      "summary": "Found the core chain. Now let me read the API-side sorting logic:",
+      "artifact": null,
+      "sessionFile": "sessions\\857395d8-e02b-4b8c-9b07-5144bbf849cd\\sub\\6ba25936\\2026-08-06T15-40-42-015Z_019fd7bb-e09f-706e-a596-e8a35a96e631.jsonl",
+      "ts": 1786030853958
+    },
+    {
+      "callId": "call_00_qQXwKuqyCz9benuWWTHn5278",
+      "agent": "executor",
+      "summary": "**执行摘要**\n\n改动(仅 1 处,`apps/api/src/config.ts`):\n- `listSessions()` 排序:`a.createdAt - b.createdAt`(升序)→ `b.createdAt - a.createdAt`(降序,最新在前)\n- 同步更新上方注释:「工作区会话列表(按创建时间升序)」→「工作区会话列表(按创建时间降序,最新在前)」\n\n说明:产物目录无 `02-plan-*.md` 文件,以任务说明中的调研结论与改动要求为执行依据;`removeSession()` 内的升序排序用于删除后重选最新会话,与列表顺序无关,按最小改动要求未触碰;前端与透传层无需改动(已核实不依赖顺序)。\n\n验证:\n- 类型检查 `tsc --noEmit` 通过(exit 0)\n- ESLint `src/config.ts` 通过(exit 0)\n- 无现成会话排序单测(已 grep 确认),逻辑复核 `b.createdAt - a.createdAt` 满足「最新在最前」\n\n执行报告已写入 `.wf-runs/6ba25936/03-execution-1.md`。",
+      "artifact": ".wf-runs\\6ba25936\\03-execution-1.md",
+      "sessionFile": "sessions\\857395d8-e02b-4b8c-9b07-5144bbf849cd\\sub\\6ba25936\\2026-08-06T15-45-43-301Z_019fd7c0-7985-73a5-89d7-a67528067cc2.jsonl",
+      "ts": 1786031189177
+    }
+  ]
+}
