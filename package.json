@@ -14,6 +14,7 @@
     "test": "turbo run test",
     "start": "pnpm --filter @workflows/api start",
     "preview": "pnpm build && pnpm start",
+    "publish:cli": "pnpm build && pnpm --filter @kaijia/workflows publish",
     "prepare": "husky"
   },
   "lint-staged": {

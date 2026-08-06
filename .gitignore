@@ -6,6 +6,9 @@ dist/
 .turbo/
 *.tsbuildinfo
 
+# pack artifacts
+*.tgz
+
 # env
 .env
 .env.*

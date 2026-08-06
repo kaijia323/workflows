@@ -1,0 +1,4 @@
+# 生成物:api 源码由 scripts/prepare.mjs 从 apps/api/src 复制,不提交
+src/api/
+# 构建产物
+dist/

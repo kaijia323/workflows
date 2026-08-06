@@ -150,7 +150,25 @@ pnpm preview     # 打包前后端 → 自动执行 start(生产模式,5200)
 pnpm typecheck   # 类型检查(turbo 并行)
 pnpm lint        # ESLint
 pnpm test        # Vitest(依赖 build)
+pnpm publish:cli # 全仓库 build + 发布 @kaijia/workflows CLI 包
 ```
+
+## CLI 发布(`@kaijia/workflows`,命令 `wf`)
+
+`packages/cli` 把 api 源码(构建时从 `apps/api/src` 整树复制、排除 `*.test.ts`)与 web 构建产物打包成**自包含 npm 包**,全局安装后单命令启动整个工作台,无需克隆仓库:
+
+```bash
+npm i -g @kaijia/workflows      # 或 pnpm add -g @kaijia/workflows
+wf start                        # 生产模式,http://localhost:5200(托管前端 + API)
+wf start --port 5211            # 指定端口
+wf start --dev                  # 开发模式(存储用包上一级 .workflows,不写 ~/.workflows)
+wf --version / wf --help
+wf upgrade                      # 按检测到的安装器升级到 latest(--dry-run 只打印不执行)
+```
+
+- 端口优先级:`--port` > 环境变量 `PORT` > 默认 **5200**;存储根:生产 `~/.workflows`,`--dev` 为包上一级 `.workflows`(仓库内即 `packages/.workflows`)
+- 发布产物 = 单个自包含 `dist/`(`cli.js` + `api/**` + `api/pi/agents/*.md` + `web-dist/` 前端产物),零 workspace 私有依赖
+- 仓库内验证/发布:`pnpm --filter @kaijia/workflows pack`(prepack 自动完整构建)→ `pnpm publish:cli`
 
 ## API 一览(前缀 `/api`)
 
@@ -194,7 +212,8 @@ workflows/
 │           ├── composables/  # useAgent(SSE 接入、消息聚合)
 │           └── utils/        # markdown 渲染
 ├── packages/
-│   └── shared/           # 共享类型(构建产物供 api/web 消费)
+│   ├── shared/           # 共享类型(构建产物供 api/web 消费)
+│   └── cli/              # @kaijia/workflows npm 包(bin wf):复制 api 源码 + web 产物 → 自包含 dist/
 ├── .workflows/           # 本地运行数据(开发环境,已 gitignore)
 └── turbo.json
 ```

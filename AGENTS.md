@@ -13,6 +13,7 @@ Turborepo monorepo — 基于 **pi SDK** 的 Web Agent 工作台(聊天 + 工作
 | `apps/web` | Vue 3 + Vite + Tailwind v4,聊天 UI(组件在 `src/components`,SSE 接入在 `src/composables/useAgent.ts`) |
 | `apps/api` | **Hono** + pi SDK。`src/pi/piService.ts` 是服务层(ModelRuntime + 每工作区一个 `AgentSession`);`src/agent/routes.ts` 是路由;`src/config.ts` 是 `.workflows` 存储;`src/mcpConfig.ts` 是 `mcp.json` 独立存储(load/save/upsert/remove + 校验 + 原子写);`src/pi/mcpTools.ts` 是 MCP client 工厂(连接生命周期 + ToolDefinition 转换) |
 | `packages/shared` | 纯类型包。**改动后需先 `pnpm build`** 再被 api/web 消费(workspace 依赖构建产物) |
+| `packages/cli` | `@kaijia/workflows` npm 包(bin `wf`)。构建时由 `scripts/prepare.mjs` 从 `apps/api/src` 整树复制 api 源码(排除 `*.test.ts`)→ `src/api/`,tsc 后 `copy-assets.mjs` 把 `apps/web/dist` 复制进 `dist/web-dist`。发布产物 = 自包含 `dist/`,零 workspace 私有依赖。入口 `src/cli.ts` 零 CLI 依赖(`util.parseArgs`),实现 `start [--port] [--dev]` / `upgrade [--dry-run]` |
 
 ## 关键约定
 
@@ -31,15 +32,27 @@ Turborepo monorepo — 基于 **pi SDK** 的 Web Agent 工作台(聊天 + 工作
 
 ```bash
 pnpm dev        # 开发(web 15200 + api 3000)
-pnpm build      # shared → api/web
+pnpm build      # shared → api/web → cli(cli 依赖 web 构建产物)
 pnpm start      # 生产(仅 api,5200)
 pnpm preview    # build + start
 pnpm typecheck / lint / test
+pnpm publish:cli # 全仓库 build + 发布 @kaijia/workflows(命令 wf)
+```
+
+CLI 包(`packages/cli`):
+
+```bash
+pnpm --filter @kaijia/workflows build  # prepare.mjs(复制 api)+ tsc + copy-assets.mjs(web 产物)
+pnpm --filter @kaijia/workflows pack   # prepack 自动完整构建,产出 tarball
+wf start [--port <p>] [--dev]          # 端口优先级 --port > PORT > 5200
+wf upgrade --dry-run                   # 打印检测到的安装器与升级命令,不执行
 ```
 
 ## 注意
 
 - 改动 shared 类型后必须重建,否则 api/web 的 TS 检查会失败
+- **cli 包的 api 源码是复制品**(`packages/cli/src/api` 由 prepare.mjs 生成、gitignored):改 `apps/api/src` 后 cli 包必须重新 build 才生效;cli 的 `build`/`prepack` 前置校验 `apps/web/dist` 存在(prepack 不触发 web 构建,先跑全仓库 `pnpm build`)
+- **api 的 `startServer` 由 cli 复用**:`apps/api/src/index.ts` 导出 `startServer(port)`(serve + 优雅退出),直接运行守卫只在入口文件被直接执行时自动启动——改 api 启动逻辑时保持该函数可复用,勿在模块顶层做副作用
 - 测试用 Vitest(api: `app.test.ts`;web: `App.test.ts`、`useAgent.test.ts`)
 - 会话事件映射在 `piService.ts` 的 `mapSessionEvent`,历史恢复在 `renderHistory`,两者需保持一致的输出顺序语义
 - **代理定义是 .md 文件,tsc 不复制**:`apps/api/scripts/copy-agents.mjs` 在 build 时把 `src/pi/agents/*.md` 复制到 `dist/pi/agents`;改动 `src/pi/agents/*.md` 后必须 `pnpm build` 生产才生效(dev 直接跑 src 不受影响)。`PiAgentService.create()` 启动时会校验 orchestrator 定义存在,缺失直接抛错——不要绕过这个检查
