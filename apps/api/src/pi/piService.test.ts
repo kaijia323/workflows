@@ -398,4 +398,29 @@ describe('prompt 回合 activeEmitters 生命周期', () => {
       rmSync(dir, { recursive: true, force: true })
     }
   })
+
+  it('subscribe 抛异常:activeEmitters 无残留条目(set 在 subscribe 之后、try 内)', async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'wf-pi-'))
+    try {
+      const service = makeService(makeStore(dir))
+      const api = service as unknown as TestApi
+      const workspace = makeWorkspace(dir)
+      const handle = makeHandle(workspace, null)
+      handle.session = {
+        subscribe: () => {
+          throw new Error('subscribe boom')
+        },
+        prompt: async () => {},
+        messages: [],
+      }
+      vi.spyOn(api, 'openSession').mockResolvedValue(handle)
+
+      await expect(api.prompt(workspace, 'hi', () => {})).rejects.toThrow('subscribe boom')
+
+      // set 未执行 → Map 无残留;后续同工作区回合不会被幽灵条目串流
+      expect(api.activeEmitters.size).toBe(0)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
 })

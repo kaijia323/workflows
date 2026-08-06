@@ -790,13 +790,11 @@ export class PiAgentService {
     if (handle.rebuildPending) handle = await this.rebuildHandle(handle)
     handle.busy = true
     handle.lastActivityAt = Date.now()
-    // 新回合:重置回合内标志(闸门 / 任务完成 / 子代理调用),挂载事件发射器
-    // (子代理/闸门事件经此转发到本回合 SSE 流,按 workspace.id 隔离,跨工作区并发不串流)
+    // 新回合:重置回合内标志(闸门 / 任务完成 / 子代理调用)
     handle.turnWaitCalled = false
     handle.turnCompleteCalled = false
     handle.turnSubAgentCalled = false
     let turnFailed = false
-    this.activeEmitters.set(workspace.id, onEvent)
 
     const unsubscribe = handle.session.subscribe((event) => {
       for (const mapped of mapSessionEvent(event)) {
@@ -816,6 +814,10 @@ export class PiAgentService {
     })
 
     try {
+      // 挂载事件发射器:子代理/闸门事件经此转发到本回合 SSE 流,按 workspace.id 隔离,
+      // 跨工作区并发不串流。set 置于 subscribe 之后、try 内:subscribe 抛异常时不产生残留条目,
+      // 与 finally 的 delete 严格成对。
+      this.activeEmitters.set(workspace.id, onEvent)
       await handle.session.prompt(text)
       onEvent({ type: 'done' })
     } catch (error) {
