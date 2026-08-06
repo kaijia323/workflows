@@ -14,7 +14,7 @@ const agent = useAgent()
 const showSettings = ref(false)
 const showPicker = ref(false)
 const meta = ref<{ workflowsRoot: string; environment: string } | null>(null)
-/** 子代理模态窗(点击 DAG 节点 / 聊天中子代理块打开) */
+/** 子代理模态窗(点击聊天中的子代理块打开) */
 const subModal = ref<{ callId: string; agentName: string } | null>(null)
 
 /* ---- 窄视口(<1100px)抽屉:两侧栏收为可开合抽屉,聊天列永不为 0 ---- */
@@ -117,7 +117,6 @@ onBeforeUnmount(() => {
         :agent="agent"
         :meta="meta"
         :open="infoOpen"
-        @open-sub="(callId, agentName) => (subModal = { callId, agentName })"
       />
     </div>
 

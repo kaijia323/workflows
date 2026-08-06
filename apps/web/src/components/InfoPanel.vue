@@ -2,17 +2,12 @@
 import { computed, nextTick, ref, watch } from 'vue'
 import type { AgentStore } from '../composables/useAgent'
 import { toolLabel } from '../composables/useAgent'
-import DagPanel from './DagPanel.vue'
 
 const props = defineProps<{
   agent: AgentStore
   meta: { workflowsRoot: string; environment: string } | null
   /** <1100px 时右栏收为抽屉,此值控制滑入/滑出 */
   open: boolean
-}>()
-
-const emit = defineEmits<{
-  openSub: [callId: string, agentName: string]
 }>()
 
 /** 抽屉根(打开时收焦;关闭时 invisible 不在 a11y 树/Tab 序中) */
@@ -52,12 +47,6 @@ function fmt(n: number | undefined): string {
         : 'max-console:translate-x-full max-console:invisible'
     "
   >
-    <!-- 上方:工作流 DAG 图 -->
-    <DagPanel
-      :agent="agent"
-      @open="emit('openSub', $event[0], $event[1])"
-    />
-
     <div class="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 pb-4">
       <div class="pt-3">
         <span class="font-display text-[10px] font-semibold tracking-[0.2em] text-mute">观测 · OBSERVE</span>
