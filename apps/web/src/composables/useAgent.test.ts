@@ -739,4 +739,101 @@ describe('useAgent 工作区切换防护(switchingWorkspaceId / openSeq / SSE �
     expect(agent.messages.value.map((m) => messageText(m))).toEqual(['来自B'])
     expect(agent.switchingWorkspaceId.value).toBeNull()
   })
+
+  it('在途切换期间点回当前工作区:晚到的 /open 响应被作废,视图不跳走(早退 bump openSeq)', async () => {
+    let resolveA!: (r: Response) => void
+    const openA = new Promise<Response>((resolve) => {
+      resolveA = resolve
+    })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input)
+        if (url === '/api/agent/config') return jsonResponse(configBody)
+        if (url === '/api/agent/workspaces') {
+          return jsonResponse([
+            { id: 'ws-1', path: '/x', name: 'x', readOnly: false, createdAt: 0 },
+            { id: 'ws-2', path: '/y', name: 'y', readOnly: false, createdAt: 0 },
+          ])
+        }
+        if (url.endsWith('/ws-1/open')) return jsonResponse(openBody('ws-1'))
+        if (url.endsWith('/ws-2/open')) return openA
+        return { ok: false, json: async () => ({ code: 404, message: 'Not Found', data: null }) }
+      }),
+    )
+    const agent = useAgent()
+    await agent.init()
+    await agent.openWorkspace('ws-1')
+    expect(agent.activeWorkspaceId.value).toBe('ws-1')
+
+    // 在途 open(ws-2)挂起,期间点回当前工作区 ws-1:早退立即作废在途切换
+    const opening = agent.openWorkspace('ws-2')
+    expect(agent.switchingWorkspaceId.value).toBe('ws-2')
+    await agent.openWorkspace('ws-1')
+    expect(agent.switchingWorkspaceId.value).toBeNull()
+    expect(agent.activeWorkspaceId.value).toBe('ws-1')
+
+    // ws-2 晚到响应被丢弃:视图不跳走、历史不被覆盖
+    resolveA(jsonResponse(openBody('ws-2', [{ id: 'u1', role: 'user', blocks: [{ type: 'text', text: '来自A' }] }])))
+    await opening
+    expect(agent.activeWorkspaceId.value).toBe('ws-1')
+    expect(agent.messages.value).toHaveLength(0)
+    expect(agent.switchingWorkspaceId.value).toBeNull()
+  })
+
+  it('abort 按流归属中止:切走后停止中止流所属工作区回合,不误伤当前工作区', async () => {
+    const calls: string[] = []
+    // 归属流连接:abort 信号触发时以 AbortError 拒绝 read,模拟真实 fetch 断开
+    let attachSignal: (signal: AbortSignal) => void = () => {}
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        attachSignal = (signal) => {
+          signal.addEventListener('abort', () => controller.error(new DOMException('aborted', 'AbortError')))
+        }
+      },
+    })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input)
+        if (url === '/api/agent/config') return jsonResponse(configBody)
+        if (url === '/api/agent/workspaces') {
+          return jsonResponse([
+            { id: 'ws-1', path: '/x', name: 'x', readOnly: false, createdAt: 0 },
+            { id: 'ws-2', path: '/y', name: 'y', readOnly: false, createdAt: 0 },
+          ])
+        }
+        if (url.endsWith('/ws-1/open')) return jsonResponse(openBody('ws-1'))
+        if (url.endsWith('/ws-1/prompt')) {
+          attachSignal(init?.signal ?? new AbortController().signal)
+          return { ok: true, body: stream, json: async () => ({}) } as unknown as Response
+        }
+        if (url.includes('/abort')) {
+          calls.push(url)
+          return jsonResponse(null)
+        }
+        return { ok: false, json: async () => ({ code: 404, message: 'Not Found', data: null }) }
+      }),
+    )
+    const agent = useAgent()
+    await agent.init()
+    await agent.openWorkspace('ws-1')
+
+    const sending = agent.sendMessage('hi')
+    // 流启动即绑定归属:streamingWorkspaceId = ws-1
+    await vi.waitFor(() => {
+      expect(agent.streaming.value).toBe(true)
+    })
+
+    // 回合运行中视图切到 ws-2,再点停止:中止目标是流所属工作区 ws-1,
+    // 而非当前激活的 ws-2(不误伤其他工作区的回合/连接)
+    agent.activeWorkspaceId.value = 'ws-2'
+    await agent.abort()
+    await sending
+
+    expect(calls).toEqual(['/api/agent/workspaces/ws-1/abort'])
+    // 归属流连接已被客户端断开(AbortError 收尾),流式状态无残留
+    expect(agent.streaming.value).toBe(false)
+    expect(agent.messages.value.map((m) => messageText(m))).toEqual(['hi'])
+  })
 })

@@ -333,7 +333,12 @@ export function useAgent() {
 
   /** 打开工作区:恢复激活会话历史与会话列表 */
   async function openWorkspace(id: string): Promise<void> {
-    if (activeWorkspaceId.value === id) return
+    if (activeWorkspaceId.value === id) {
+      // 点回当前工作区:作废在途切换(其晚到 /open 响应因 seq 不匹配被丢弃,「最后点击者」语义成立)
+      openSeq++
+      switchingWorkspaceId.value = null
+      return
+    }
     if (streaming.value) await abort()
     // 同步置位:切换窗口期从「点击」算起,而非从 /open 返回算起
     switchingWorkspaceId.value = id
